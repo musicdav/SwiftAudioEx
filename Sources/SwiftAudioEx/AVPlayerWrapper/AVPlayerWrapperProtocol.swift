@@ -38,12 +38,11 @@ protocol AVPlayerWrapperProtocol: AnyObject {
     var timeEventFrequency: TimeEventFrequency { get set }
     
     var volume: Float { get set }
-    
+
     var isMuted: Bool { get set }
-    
+
     var automaticallyWaitsToMinimizeStalling: Bool { get set }
-    var progressiveDownload: Bool { get set }
-    
+
     func play()
     
     func pause()

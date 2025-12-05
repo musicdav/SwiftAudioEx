@@ -107,7 +107,7 @@ extension AudioPlayer {
         public let currentItem: AudioPlayer.Event<CurrentItemEventData> = AudioPlayer.Event()
 
         /**
-         Emitted when the current track has been fully loaded (progressive download), including the cached file path when available.
+         Emitted when the current track has been fully loaded, including the cached file path when available.
          */
         public let trackFullyLoaded: AudioPlayer.Event<TrackFullyLoadedEventData> = AudioPlayer.Event()
     }

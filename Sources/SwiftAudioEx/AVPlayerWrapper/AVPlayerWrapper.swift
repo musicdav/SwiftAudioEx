@@ -43,7 +43,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         attributes: .concurrent
     )
 
-    public var progressiveDownload: Bool = false
     public var currentTrackIdentifier: String? = nil
 
     public init() {
@@ -264,7 +263,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         }
         guard let url = url else { return }
 
-        let usesCaching = progressiveDownload && currentSourceType == .stream
+        let usesCaching = currentSourceType == .stream
         let playableKeys = ["playable"]
 
         let pendingAsset: AVURLAsset
@@ -570,7 +569,7 @@ extension AVPlayerWrapper: AVPlayerItemObserverDelegate {
     }
 
     func itemDidFullyLoad() {
-        if progressiveDownload && currentSourceType == .stream {
+        if currentSourceType == .stream {
             return
         }
         delegate?.AVWrapper(trackFullyLoaded: currentTrackIdentifier, filePath: nil)
