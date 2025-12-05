@@ -53,8 +53,7 @@ class AudioController {
             .previous,
             .changePlaybackPosition
         ]
-        player.progressiveDownload = true
-       
+
         player.repeatMode = .queue
         DispatchQueue.main.async {
             self.player.add(items: self.sources)

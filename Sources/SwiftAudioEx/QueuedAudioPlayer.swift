@@ -267,7 +267,6 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     }
 
     private func preloadNextIfNeeded() {
-        guard wrapper.progressiveDownload else { return }
         guard let nextItem = nextItems.first ?? (repeatMode == .queue ? items.first : nil) else { return }
         guard nextItem.getSourceType() == .stream else { return }
 

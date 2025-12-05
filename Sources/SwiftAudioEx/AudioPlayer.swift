@@ -172,14 +172,6 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
         }
     }
 
-    /**
-     Enable/disable progressive download (custom resource loader + caching).
-     */
-    public var progressiveDownload: Bool {
-        get { (wrapper as? AVPlayerWrapper)?.progressiveDownload ?? false }
-        set { (wrapper as? AVPlayerWrapper)?.progressiveDownload = newValue }
-    }
-
     // MARK: - Init
 
     /**
