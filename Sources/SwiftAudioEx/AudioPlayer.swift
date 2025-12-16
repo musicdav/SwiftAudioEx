@@ -417,6 +417,10 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
 
     func AVWrapper(didUpdateDuration duration: Double) {
         event.updateDuration.emit(data: duration)
+
+        if (automaticallyUpdateNowPlayingInfo) {
+            updateNowPlayingPlaybackValues()
+        }
     }
     
     func AVWrapper(didReceiveCommonMetadata metadata: [AVMetadataItem]) {
