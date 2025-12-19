@@ -3,11 +3,11 @@
     "pins": [
       {
         "package": "CachingPlayerItem",
-        "repositoryURL": "https://github.com/sukov/CachingPlayerItem.git",
+        "repositoryURL": "https://github.com/musicdav/CachingPlayerItem.git",
         "state": {
-          "branch": null,
-          "revision": "cc00381e252ac9b2a7b691e1da6a598bd7517bdc",
-          "version": "2.2.0"
+          "branch": "master",
+          "revision": "c1d97614ba4d4d3ee02194be176a1abd0b85fe78",
+          "version": null
         }
       }
     ]

@@ -1,4 +1,4 @@
-// swift-tools-version:5.3
+// swift-tools-version:5.5
 import PackageDescription
 
 let package = Package(
@@ -10,7 +10,7 @@ let package = Package(
             targets: ["SwiftAudioEx"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/sukov/CachingPlayerItem.git", from: "2.2.0")
+        .package(url: "https://github.com/musicdav/CachingPlayerItem.git", branch: "master"),
     ],
     targets: [
         .target(
