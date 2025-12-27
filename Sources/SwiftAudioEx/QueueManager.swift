@@ -19,14 +19,16 @@ class QueueManager<Element> {
 
     fileprivate func synchronizeThrows<T>(action: () throws -> T) throws -> T {
         recursiveLock.lock()
-        defer { recursiveLock.unlock() }
-        return try action()
+        let result = try action()
+        recursiveLock.unlock()
+        return result
     }
 
     fileprivate func synchronize <T>(action: () -> T) -> T {
         recursiveLock.lock()
-        defer { recursiveLock.unlock() }
-        return action()
+        let result = action()
+        recursiveLock.unlock()
+        return result
     }
     
     weak var delegate: QueueManagerDelegate? = nil

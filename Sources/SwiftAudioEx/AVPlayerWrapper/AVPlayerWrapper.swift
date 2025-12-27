@@ -42,21 +42,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         label: "AVPlayerWrapper.stateQueue",
         attributes: .concurrent
     )
-    private func performOnMainSync(_ action: () -> Void) {
-        if Thread.isMainThread {
-            action()
-        } else {
-            DispatchQueue.main.sync(execute: action)
-        }
-    }
-
-    private func performOnMainAsync(_ action: @escaping () -> Void) {
-        if Thread.isMainThread {
-            action()
-        } else {
-            DispatchQueue.main.async(execute: action)
-        }
-    }
 
     public var currentTrackIdentifier: String? = nil
 
@@ -215,34 +200,30 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     func seek(to seconds: TimeInterval) {
-        performOnMainSync {
-            // if the player is loading then we need to defer seeking until it's ready.
-            if (self.avPlayer.currentItem == nil) {
-                self.timeToSeekToAfterLoading = seconds
-            } else {
-                let time = CMTimeMakeWithSeconds(seconds, preferredTimescale: 1000)
-                self.avPlayer.seek(to: time, toleranceBefore: CMTime.zero, toleranceAfter: CMTime.zero) { (finished) in
-                    self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: finished)
-                }
-            }
-        }
+       // if the player is loading then we need to defer seeking until it's ready.
+        if (avPlayer.currentItem == nil) {
+         timeToSeekToAfterLoading = seconds
+       } else {
+           let time = CMTimeMakeWithSeconds(seconds, preferredTimescale: 1000)
+           avPlayer.seek(to: time, toleranceBefore: CMTime.zero, toleranceAfter: CMTime.zero) { (finished) in
+             self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: finished)
+         }
+       }
      }
 
     func seek(by seconds: TimeInterval) {
-        performOnMainSync {
-            if let currentItem = self.avPlayer.currentItem {
-                let time = currentItem.currentTime().seconds + seconds
-                self.avPlayer.seek(
-                    to: CMTimeMakeWithSeconds(time, preferredTimescale: 1000)
-                ) { (finished) in
-                    self.delegate?.AVWrapper(seekTo: Double(time), didFinish: finished)
-                }
+        if let currentItem = avPlayer.currentItem {
+            let time = currentItem.currentTime().seconds + seconds
+            avPlayer.seek(
+                to: CMTimeMakeWithSeconds(time, preferredTimescale: 1000)
+            ) { (finished) in
+                  self.delegate?.AVWrapper(seekTo: Double(time), didFinish: finished)
+            }
+        } else {
+            if let timeToSeekToAfterLoading = timeToSeekToAfterLoading {
+                self.timeToSeekToAfterLoading = timeToSeekToAfterLoading + seconds
             } else {
-                if let timeToSeekToAfterLoading = self.timeToSeekToAfterLoading {
-                    self.timeToSeekToAfterLoading = timeToSeekToAfterLoading + seconds
-                } else {
-                    self.timeToSeekToAfterLoading = seconds
-                }
+                timeToSeekToAfterLoading = seconds
             }
         }
     }
@@ -290,15 +271,11 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
 
         if usesCaching {
             let cachingItem = makeCachingPlayerItem(for: url)
-            performOnMainSync {
-                self.activeCachingItem = cachingItem
-            }
+            activeCachingItem = cachingItem
             pendingAsset = cachingItem.asset as? AVURLAsset ?? AVURLAsset(url: url, options: urlOptions)
             pendingItem = cachingItem
         } else {
-            performOnMainSync {
-                self.activeCachingItem = nil
-            }
+            activeCachingItem = nil
             pendingAsset = AVURLAsset(url: url, options: urlOptions)
             pendingItem = AVPlayerItem(
                 asset: pendingAsset,
@@ -306,34 +283,30 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             )
         }
 
-        performOnMainSync {
-            self.asset = pendingAsset
-        }
+        asset = pendingAsset
         state = .loading
         
         // Load metadata keys asynchronously and separate from playable, to allow that to execute as quickly as it can
         let metdataKeys = ["commonMetadata", "availableChapterLocales", "availableMetadataFormats"]
         pendingAsset.loadValuesAsynchronously(forKeys: metdataKeys, completionHandler: { [weak self] in
             guard let self = self else { return }
-            self.performOnMainAsync {
-                if (pendingAsset != self.asset) { return; }
-                
-                let commonData = pendingAsset.commonMetadata
-                if (!commonData.isEmpty) {
-                    self.delegate?.AVWrapper(didReceiveCommonMetadata: commonData)
+            if (pendingAsset != self.asset) { return; }
+            
+            let commonData = pendingAsset.commonMetadata
+            if (!commonData.isEmpty) {
+                self.delegate?.AVWrapper(didReceiveCommonMetadata: commonData)
+            }
+            
+            if pendingAsset.availableChapterLocales.count > 0 {
+                for locale in pendingAsset.availableChapterLocales {
+                    let chapters = pendingAsset.chapterMetadataGroups(withTitleLocale: locale, containingItemsWithCommonKeys: nil)
+                    self.delegate?.AVWrapper(didReceiveChapterMetadata: chapters)
                 }
-                
-                if pendingAsset.availableChapterLocales.count > 0 {
-                    for locale in pendingAsset.availableChapterLocales {
-                        let chapters = pendingAsset.chapterMetadataGroups(withTitleLocale: locale, containingItemsWithCommonKeys: nil)
-                        self.delegate?.AVWrapper(didReceiveChapterMetadata: chapters)
-                    }
-                } else {
-                    for format in pendingAsset.availableMetadataFormats {
-                        let timeRange = CMTimeRange(start: CMTime(seconds: 0, preferredTimescale: 1000), end: pendingAsset.duration)
-                        let group = AVTimedMetadataGroup(items: pendingAsset.metadata(forFormat: format), timeRange: timeRange)
-                        self.delegate?.AVWrapper(didReceiveTimedMetadata: [group])
-                    }
+            } else {
+                for format in pendingAsset.availableMetadataFormats {
+                    let timeRange = CMTimeRange(start: CMTime(seconds: 0, preferredTimescale: 1000), end: pendingAsset.duration)
+                    let group = AVTimedMetadataGroup(items: pendingAsset.metadata(forFormat: format), timeRange: timeRange)
+                    self.delegate?.AVWrapper(didReceiveTimedMetadata: [group])
                 }
             }
         })
@@ -342,7 +315,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         pendingAsset.loadValuesAsynchronously(forKeys: playableKeys, completionHandler: { [weak self] in
             guard let self = self else { return }
             
-            self.performOnMainAsync {
+            DispatchQueue.main.async {
                 if (pendingAsset != self.asset) { return; }
                 
                 for key in playableKeys {
@@ -451,19 +424,17 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     // MARK: - Util
 
     private func clearCurrentItem() {
-        performOnMainSync {
-            self.stopObservingAVPlayerItem()
-            
-            self.asset?.cancelLoading()
-            self.asset = nil
-            
-            if self.activeCachingItem?.isCaching == true {
-                self.activeCachingItem?.cancelDownload()
-            }
-            self.activeCachingItem = nil
-            
-            self.avPlayer.replaceCurrentItem(with: nil)
+        stopObservingAVPlayerItem()
+        
+        asset?.cancelLoading()
+        self.asset = nil
+
+        if activeCachingItem?.isCaching == true {
+            activeCachingItem?.cancelDownload()
         }
+        activeCachingItem = nil
+
+        avPlayer.replaceCurrentItem(with: nil)
     }
     
     private func startObservingAVPlayer(item: AVPlayerItem) {
@@ -477,42 +448,35 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     private func recreateAVPlayer() {
-        performOnMainSync {
-            self.playbackError = nil
-            self.playerTimeObserver.unregisterForBoundaryTimeEvents()
-            self.playerTimeObserver.unregisterForPeriodicEvents()
-            self.playerObserver.stopObserving()
-            self.stopObservingAVPlayerItem()
-            self.clearCurrentItem()
-            
-            self.avPlayer = AVPlayer();
-            self.setupAVPlayer()
-            
-            self.delegate?.AVWrapperDidRecreateAVPlayer()
-        }
+        playbackError = nil
+        playerTimeObserver.unregisterForBoundaryTimeEvents()
+        playerTimeObserver.unregisterForPeriodicEvents()
+        playerObserver.stopObserving()
+        stopObservingAVPlayerItem()
+        clearCurrentItem()
+
+        avPlayer = AVPlayer();
+        setupAVPlayer()
+
+        delegate?.AVWrapperDidRecreateAVPlayer()
     }
     
     private func setupAVPlayer() {
-        performOnMainSync {
-            // disabled since we're not making use of video playback
-            self.avPlayer.allowsExternalPlayback = false;
-            
-            self.playerObserver.player = self.avPlayer
-            self.playerObserver.startObserving()
-            
-            self.playerTimeObserver.player = self.avPlayer
-            self.playerTimeObserver.registerForBoundaryTimeEvents()
-            self.playerTimeObserver.registerForPeriodicTimeEvents()
-            
-            self.applyAVPlayerRate()
-        }
+        // disabled since we're not making use of video playback
+        avPlayer.allowsExternalPlayback = false;
+
+        playerObserver.player = avPlayer
+        playerObserver.startObserving()
+
+        playerTimeObserver.player = avPlayer
+        playerTimeObserver.registerForBoundaryTimeEvents()
+        playerTimeObserver.registerForPeriodicTimeEvents()
+
+        applyAVPlayerRate()
     }
     
     private func applyAVPlayerRate() {
-        let targetRate = playWhenReady ? _rate : 0
-        performOnMainSync {
-            self.avPlayer.rate = targetRate
-        }
+        avPlayer.rate = playWhenReady ? _rate : 0
     }
 }
 
