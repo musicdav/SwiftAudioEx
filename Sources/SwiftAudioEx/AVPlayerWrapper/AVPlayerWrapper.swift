@@ -38,6 +38,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private var currentFileExtension: String? = nil
     private var activeCachingItem: CachingPlayerItem? = nil
     var assignedPreloadedItem: CachingPlayerItem?
+    private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
+    private var loadSequence: UInt = 0
     fileprivate let stateQueue = DispatchQueue(
         label: "AVPlayerWrapper.stateQueue",
         attributes: .concurrent
@@ -233,6 +235,19 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         self.playbackError = error
         self.delegate?.AVWrapper(failedWithError: error)
     }
+
+    private func nextLoadSequence() -> UInt {
+        loadSequenceQueue.sync {
+            loadSequence &+= 1
+            return loadSequence
+        }
+    }
+
+    private func isCurrentLoadSequence(_ sequence: UInt) -> Bool {
+        loadSequenceQueue.sync {
+            loadSequence == sequence
+        }
+    }
     
     private func makeCachingPlayerItem(for url: URL) -> CachingPlayerItem {
         if let preloaded = assignedPreloadedItem {
@@ -262,6 +277,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             clearCurrentItem()
         }
         guard let url = url else { return }
+        let currentLoadSequence = nextLoadSequence()
 
         let usesCaching = currentSourceType == .stream
         let playableKeys = ["playable"]
@@ -290,6 +306,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         let metdataKeys = ["commonMetadata", "availableChapterLocales", "availableMetadataFormats"]
         pendingAsset.loadValuesAsynchronously(forKeys: metdataKeys, completionHandler: { [weak self] in
             guard let self = self else { return }
+            if (!self.isCurrentLoadSequence(currentLoadSequence)) { return }
             if (pendingAsset != self.asset) { return; }
             
             let commonData = pendingAsset.commonMetadata
@@ -316,6 +333,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             guard let self = self else { return }
             
             DispatchQueue.main.async {
+                if (!self.isCurrentLoadSequence(currentLoadSequence)) { return }
                 if (pendingAsset != self.asset) { return; }
                 
                 for key in playableKeys {
@@ -426,15 +444,22 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private func clearCurrentItem() {
         stopObservingAVPlayerItem()
         
-        asset?.cancelLoading()
-        self.asset = nil
-
-        if activeCachingItem?.isCaching == true {
-            activeCachingItem?.cancelDownload()
-        }
+        let assetToCancel = asset
+        let cachingItemToCancel = activeCachingItem
+        
+        cachingItemToCancel?.delegate = nil
+        asset = nil
+        item = nil
         activeCachingItem = nil
-
         avPlayer.replaceCurrentItem(with: nil)
+        
+        // 异步执行取消操作，避免阻塞主线程
+        DispatchQueue.global(qos: .userInitiated).async {
+            assetToCancel?.cancelLoading()
+            if cachingItemToCancel?.isCaching == true {
+                cachingItemToCancel?.cancelDownload()
+            }
+        }
     }
     
     private func startObservingAVPlayer(item: AVPlayerItem) {
@@ -582,12 +607,14 @@ extension AVPlayerWrapper: AVPlayerItemObserverDelegate {
 
 extension AVPlayerWrapper: CachingPlayerItemDelegate {
     func playerItem(_ playerItem: CachingPlayerItem, didFinishDownloadingFileAt filePath: String) {
+        guard playerItem === activeCachingItem else { return }
         let trackId = (playerItem.passOnObject as? String) ?? currentTrackIdentifier ?? url?.absoluteString
         print("[CachingPlayerItem] download finished. trackId=\(trackId ?? "unknown") path=\(filePath)")
         delegate?.AVWrapper(trackFullyLoaded: trackId, filePath: filePath)
     }
 
     func playerItem(_ playerItem: CachingPlayerItem, downloadingFailedWith error: Error) {
+        guard playerItem === activeCachingItem else { return }
         playbackFailed(error: AudioPlayerError.PlaybackError.playbackFailed)
     }
 }
