@@ -281,7 +281,6 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         let resolvedExtension = AudioCacheManager.shared.resolvedFileExtension(for: url, customFileExtension: fileExtension)
         let options = (nextItem as? AssetOptionsProviding)?.getAssetOptions()
         preloadedIdentifier = identifier
-        preloadingItem?.delegate = nil
         preloadingItem?.cancelDownload()
 
         let cachingItem = CachingPlayerItem(
