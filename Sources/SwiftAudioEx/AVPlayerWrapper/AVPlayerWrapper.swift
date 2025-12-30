@@ -273,18 +273,25 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     func load() {
         if (state == .failed) {
             recreateAVPlayer()
-        } else {
-            clearCurrentItem()
         }
+        // Note: We no longer call clearCurrentItem() here immediately.
+        // Instead, we defer resource cleanup until the new item is ready.
+        // This keeps the old item "active" in AVPlayer, preventing iOS from
+        // thinking the audio session has ended during the transition.
+
+        // Cancel previous asset loading but keep the player item in AVPlayer
+        let previousAsset = asset
+        let previousCachingItem = activeCachingItem
+
+        // Stop observing the previous item but don't remove it from player yet
+        stopObservingAVPlayerItem()
+
         guard let url = url else { return }
         let currentLoadSequence = nextLoadSequence()
-
         let usesCaching = currentSourceType == .stream
         let playableKeys = ["playable"]
-
         let pendingAsset: AVURLAsset
         let pendingItem: AVPlayerItem
-
         if usesCaching {
             let cachingItem = makeCachingPlayerItem(for: url)
             activeCachingItem = cachingItem
@@ -298,9 +305,17 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
                 automaticallyLoadedAssetKeys: playableKeys
             )
         }
-
         asset = pendingAsset
         state = .loading
+
+        // Clean up previous resources asynchronously (but don't touch the player yet)
+        DispatchQueue.global(qos: .userInitiated).async {
+            previousAsset?.cancelLoading()
+            previousCachingItem?.delegate = nil
+            if previousCachingItem?.isCaching == true {
+                previousCachingItem?.cancelDownload()
+            }
+        }
         
         // Load metadata keys asynchronously and separate from playable, to allow that to execute as quickly as it can
         let metdataKeys = ["commonMetadata", "availableChapterLocales", "availableMetadataFormats"]
@@ -356,6 +371,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
                     return;
                 }
                 
+                // NOW we can safely replace the current item - the new one is ready
                 self.item = pendingItem;
                 pendingItem.preferredForwardBufferDuration = self.bufferDuration
                 self.avPlayer.replaceCurrentItem(with: pendingItem)

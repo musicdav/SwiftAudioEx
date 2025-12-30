@@ -206,10 +206,14 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
             if (automaticallyUpdateNowPlayingInfo) {
                 // Reset playback values without updating, because that will happen in
                 // the loadNowPlayingMetaValues call straight after:
+                // Note: We keep playbackRate at current value (or 1.0) instead of nil
+                // to prevent iOS from thinking playback has stopped during track transition.
+                let shouldPlay = playWhenReady ?? self.playWhenReady
+                let currentRate = shouldPlay ? Double(wrapper.rate) : 0
                 nowPlayingInfoController.setWithoutUpdate(keyValues: [
                     MediaItemProperty.duration(nil),
-                    NowPlayingInfoProperty.playbackRate(nil),
-                    NowPlayingInfoProperty.elapsedPlaybackTime(nil)
+                    NowPlayingInfoProperty.playbackRate(currentRate > 0 ? currentRate : Double(wrapper.rate)),
+                    NowPlayingInfoProperty.elapsedPlaybackTime(0)
                 ])
                 loadNowPlayingMetaValues()
             }
