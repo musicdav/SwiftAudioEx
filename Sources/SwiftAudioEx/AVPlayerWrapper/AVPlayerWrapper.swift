@@ -30,6 +30,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private let playerItemNotificationObserver = AVPlayerItemNotificationObserver()
     private let playerItemObserver = AVPlayerItemObserver()
     fileprivate var timeToSeekToAfterLoading: TimeInterval?
+    private var isTransitioningItem: Bool = false
     fileprivate var asset: AVAsset? = nil
     fileprivate var item: AVPlayerItem? = nil
     fileprivate var url: URL? = nil
@@ -116,6 +117,9 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     var currentTime: TimeInterval {
+        if isTransitioningItem {
+            return 0
+        }
         let seconds = avPlayer.currentTime().seconds
         return seconds.isNaN ? 0 : seconds
     }
@@ -203,7 +207,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     
     func seek(to seconds: TimeInterval) {
        // if the player is loading then we need to defer seeking until it's ready.
-        if (avPlayer.currentItem == nil) {
+        if (avPlayer.currentItem == nil || isTransitioningItem) {
          timeToSeekToAfterLoading = seconds
        } else {
            let time = CMTimeMakeWithSeconds(seconds, preferredTimescale: 1000)
@@ -215,6 +219,14 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
 
     func seek(by seconds: TimeInterval) {
         if let currentItem = avPlayer.currentItem {
+            if isTransitioningItem {
+                if let timeToSeekToAfterLoading = timeToSeekToAfterLoading {
+                    self.timeToSeekToAfterLoading = timeToSeekToAfterLoading + seconds
+                } else {
+                    timeToSeekToAfterLoading = seconds
+                }
+                return
+            }
             let time = currentItem.currentTime().seconds + seconds
             avPlayer.seek(
                 to: CMTimeMakeWithSeconds(time, preferredTimescale: 1000)
@@ -231,6 +243,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     private func playbackFailed(error: AudioPlayerError.PlaybackError) {
+        isTransitioningItem = false
         state = .failed
         self.playbackError = error
         self.delegate?.AVWrapper(failedWithError: error)
@@ -274,6 +287,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         if (state == .failed) {
             recreateAVPlayer()
         }
+        isTransitioningItem = true
         // Note: We no longer call clearCurrentItem() here immediately.
         // Instead, we defer resource cleanup until the new item is ready.
         // This keeps the old item "active" in AVPlayer, preventing iOS from
@@ -286,7 +300,10 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         // Stop observing the previous item but don't remove it from player yet
         stopObservingAVPlayerItem()
 
-        guard let url = url else { return }
+        guard let url = url else {
+            isTransitioningItem = false
+            return
+        }
         let currentLoadSequence = nextLoadSequence()
         let usesCaching = currentSourceType == .stream
         let playableKeys = ["playable"]
@@ -375,6 +392,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
                 self.item = pendingItem;
                 pendingItem.preferredForwardBufferDuration = self.bufferDuration
                 self.avPlayer.replaceCurrentItem(with: pendingItem)
+                self.isTransitioningItem = false
                 self.startObservingAVPlayer(item: pendingItem)
                 self.applyAVPlayerRate()
                 
@@ -467,6 +485,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         asset = nil
         item = nil
         activeCachingItem = nil
+        isTransitioningItem = false
         avPlayer.replaceCurrentItem(with: nil)
         
         // 异步执行取消操作，避免阻塞主线程
@@ -526,6 +545,9 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
     // MARK: - AVPlayerObserverDelegate
     
     func player(didChangeTimeControlStatus status: AVPlayer.TimeControlStatus) {
+        if isTransitioningItem {
+            return
+        }
         switch status {
         case .paused:
             let state = self.state
@@ -573,6 +595,9 @@ extension AVPlayerWrapper: AVPlayerTimeObserverDelegate {
     }
     
     func timeEvent(time: CMTime) {
+        if isTransitioningItem {
+            return
+        }
         delegate?.AVWrapper(secondsElapsed: time.seconds)
     }
     
