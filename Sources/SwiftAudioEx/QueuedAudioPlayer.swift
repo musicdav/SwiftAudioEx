@@ -198,9 +198,17 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             // quick workaround for race condition - schedule a call after 2 frames
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.016 * 2) { [weak self] in self?.replay() }
         } else if (repeatMode == .queue) {
+            let shouldContinuePlaying = playWhenReady
             _ = queue.next(wrap: true)
+            if shouldContinuePlaying && !playWhenReady {
+                playWhenReady = true
+            }
         } else if (currentIndex != items.count - 1) {
+            let shouldContinuePlaying = playWhenReady
             _ = queue.next(wrap: false)
+            if shouldContinuePlaying && !playWhenReady {
+                playWhenReady = true
+            }
         } else {
             wrapper.state = .ended
         }
