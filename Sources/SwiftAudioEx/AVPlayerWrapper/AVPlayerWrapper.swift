@@ -607,8 +607,9 @@ extension AVPlayerWrapper: AVPlayerItemObserverDelegate {
 
 extension AVPlayerWrapper: CachingPlayerItemDelegate {
     func playerItem(_ playerItem: CachingPlayerItem, didFinishDownloadingFileAt filePath: String) {
-        guard playerItem === activeCachingItem else { return }
-        let trackId = (playerItem.passOnObject as? String) ?? currentTrackIdentifier ?? url?.absoluteString
+        let isActiveItem = playerItem === activeCachingItem
+        let trackId = (playerItem.passOnObject as? String)
+            ?? (isActiveItem ? (currentTrackIdentifier ?? url?.absoluteString) : nil)
         print("[CachingPlayerItem] download finished. trackId=\(trackId ?? "unknown") path=\(filePath)")
         delegate?.AVWrapper(trackFullyLoaded: trackId, filePath: filePath)
     }
