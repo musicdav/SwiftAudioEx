@@ -261,6 +261,9 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     private var preloadingTrackId: String?
     
     private func trackKey(for item: AudioItem) -> String {
+        if let id = item.getTrackIdentifier(), !id.isEmpty {
+            return id
+        }
         if let id = (item as? TrackIdentifiable)?.trackIdentifier(), !id.isEmpty {
             return id
         }
