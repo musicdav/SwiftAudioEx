@@ -24,6 +24,17 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
     /// The repeat mode for the queue player.
     public var repeatMode: RepeatMode = .off
+    public var preloadNextTrackEnabled: Bool = true {
+        didSet {
+            if preloadNextTrackEnabled {
+                if wrapper.playbackActive {
+                    preloadNextIfNeeded()
+                }
+            } else {
+                resetPreloading()
+            }
+        }
+    }
 
     public override var currentItem: AudioItem? {
         queue.current
@@ -38,9 +49,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
     override public func clear() {
         queue.clearQueue()
-        preloadingItem?.cancelDownload()
-        preloadingItem = nil
-        preloadedIdentifier = nil
+        resetPreloading()
         super.clear()
     }
 
@@ -259,6 +268,13 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     private var preloadedIdentifier: String?
     private var preloadingItem: CachingPlayerItem?
     private var preloadingTrackId: String?
+
+    private func resetPreloading() {
+        preloadingItem?.cancelDownload()
+        preloadingItem = nil
+        preloadedIdentifier = nil
+        preloadingTrackId = nil
+    }
     
     private func trackKey(for item: AudioItem) -> String {
         if let id = item.getTrackIdentifier(), !id.isEmpty {
@@ -272,12 +288,13 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
     override func AVWrapper(didChangeState state: AVPlayerWrapperState) {
         super.AVWrapper(didChangeState: state)
-        if state == .playing {
+        if state == .playing, preloadNextTrackEnabled {
             preloadNextIfNeeded()
         }
     }
 
     private func preloadNextIfNeeded() {
+        guard preloadNextTrackEnabled else { return }
         guard let nextItem = nextItems.first ?? (repeatMode == .queue ? items.first : nil) else { return }
         guard nextItem.getSourceType() == .stream else { return }
 
