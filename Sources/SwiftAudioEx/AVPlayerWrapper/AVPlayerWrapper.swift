@@ -36,6 +36,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     fileprivate var urlOptions: [String: Any]? = nil
     private var currentSourceType: SourceType = .stream
     private var currentFileExtension: String? = nil
+    private var currentIsTranscoded: Bool = false
     private var activeCachingItem: CachingPlayerItem? = nil
     var assignedPreloadedItem: CachingPlayerItem?
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
@@ -279,7 +280,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         guard let url = url else { return }
         let currentLoadSequence = nextLoadSequence()
 
-        let usesCaching = currentSourceType == .stream
+        let usesCaching = currentSourceType == .stream && !currentIsTranscoded
         let playableKeys = ["playable"]
 
         let pendingAsset: AVURLAsset
@@ -370,12 +371,13 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         })
     }
     
-    func load(from url: URL, type: SourceType = .stream, playWhenReady: Bool, options: [String: Any]? = nil, fileExtension: String? = nil) {
+    func load(from url: URL, type: SourceType = .stream, playWhenReady: Bool, options: [String: Any]? = nil, fileExtension: String? = nil, isTranscoded: Bool = false) {
         self.playWhenReady = playWhenReady
         self.url = url
         self.urlOptions = options
         self.currentSourceType = type
         self.currentFileExtension = fileExtension
+        self.currentIsTranscoded = isTranscoded
         self.load()
     }
     
@@ -385,9 +387,10 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         playWhenReady: Bool,
         initialTime: TimeInterval? = nil,
         options: [String : Any]? = nil,
-        fileExtension: String? = nil
+        fileExtension: String? = nil,
+        isTranscoded: Bool = false
     ) {
-        self.load(from: url, type: type, playWhenReady: playWhenReady, options: options, fileExtension: fileExtension)
+        self.load(from: url, type: type, playWhenReady: playWhenReady, options: options, fileExtension: fileExtension, isTranscoded: isTranscoded)
         if let initialTime = initialTime {
             self.seek(to: initialTime)
         }
@@ -399,7 +402,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         playWhenReady: Bool = false,
         initialTime: TimeInterval? = nil,
         options: [String : Any]? = nil,
-        fileExtension: String? = nil
+        fileExtension: String? = nil,
+        isTranscoded: Bool = false
     ) {
         let itemUrl: URL?
         switch type {
@@ -409,7 +413,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             itemUrl = URL(string: url)
         }
         if let itemUrl = itemUrl {
-            self.load(from: itemUrl, type: type, playWhenReady: playWhenReady, options: options, fileExtension: fileExtension)
+            self.load(from: itemUrl, type: type, playWhenReady: playWhenReady, options: options, fileExtension: fileExtension, isTranscoded: isTranscoded)
             if let initialTime = initialTime {
                 self.seek(to: initialTime)
             }
@@ -594,10 +598,7 @@ extension AVPlayerWrapper: AVPlayerItemObserverDelegate {
     }
 
     func itemDidFullyLoad() {
-        if currentSourceType == .stream {
-            return
-        }
-        delegate?.AVWrapper(trackFullyLoaded: currentTrackIdentifier, filePath: nil)
+        
     }
     
     func item(didReceiveTimedMetadata metadata: [AVTimedMetadataGroup]) {

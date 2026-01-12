@@ -297,6 +297,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         guard preloadNextTrackEnabled else { return }
         guard let nextItem = nextItems.first ?? (repeatMode == .queue ? items.first : nil) else { return }
         guard nextItem.getSourceType() == .stream else { return }
+        if (nextItem as? TranscodingProviding)?.isTranscoded == true { return }
 
         let urlString = nextItem.getSourceUrl()
         guard let url = URL(string: urlString) else { return }

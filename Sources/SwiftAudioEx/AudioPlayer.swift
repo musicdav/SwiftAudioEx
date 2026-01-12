@@ -219,13 +219,15 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
             enableRemoteCommands(forItem: item)
             let fileType = (item as? FileTypeProviding)?.getFileType()
             
+            let isTranscoded = (item as? TranscodingProviding)?.isTranscoded ?? false
             wrapper.load(
                 from: item.getSourceUrl(),
                 type: item.getSourceType(),
                 playWhenReady: self.playWhenReady,
                 initialTime: (item as? InitialTiming)?.getInitialTime(),
                 options:(item as? AssetOptionsProviding)?.getAssetOptions(),
-                fileExtension: fileType
+                fileExtension: fileType,
+                isTranscoded: isTranscoded
             )
         }
     }

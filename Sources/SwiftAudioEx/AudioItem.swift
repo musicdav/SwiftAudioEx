@@ -52,6 +52,11 @@ public protocol FileTypeProviding {
     func getFileType() -> String?
 }
 
+/// Make your `AudioItem`-subclass conform to this protocol to indicate if the item is transcoded.
+public protocol TranscodingProviding {
+    var isTranscoded: Bool { get }
+}
+
 public class DefaultAudioItem: AudioItem, Identifiable, FileTypeProviding {
 
     public var audioUrl: String
