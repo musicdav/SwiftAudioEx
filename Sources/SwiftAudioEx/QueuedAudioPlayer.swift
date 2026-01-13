@@ -321,12 +321,14 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             return duration
         }()
 
+        // Convert Int bitrateKbps to Double for CachingPlayerItem
+        let bitrateDouble: Double? = bitrateKbps.map { Double($0) }
         let cachingItem = CachingPlayerItem(
             url: url,
             saveFilePath: AudioCacheManager.shared.fileURL(for: url, trackId: trackId, fileExtension: resolvedExtension).path,
             customFileExtension: resolvedExtension,
             avUrlAssetOptions: options,
-            bitrateKbps: bitrateKbps,
+            bitrateKbps: bitrateDouble,
             durationSeconds: durationSeconds
         )
         cachingItem.passOnObject = trackId
