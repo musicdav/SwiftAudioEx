@@ -256,13 +256,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             assignedPreloadedItem = nil
             preloaded.delegate = self
             preloaded.passOnObject = currentTrackIdentifier
-            // Update bitrate/duration if available (convert Int to Double for CachingPlayerItem)
-            if let bitrate = bitrateKbps, bitrate > 0 {
-                preloaded.bitrateKbps = Double(bitrate)
-            }
-            if let duration = durationSeconds, duration > 0 {
-                preloaded.durationSeconds = duration
-            }
             return preloaded
         }
 
