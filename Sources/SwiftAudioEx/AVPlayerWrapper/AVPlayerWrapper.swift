@@ -36,7 +36,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     fileprivate var urlOptions: [String: Any]? = nil
     private var currentSourceType: SourceType = .stream
     private var currentFileExtension: String? = nil
-    private var currentIsTranscoded: Bool = false
+    private var currentBitrateKbps: Int? = nil
+    private var currentDurationSeconds: Double? = nil
     private var activeCachingItem: CachingPlayerItem? = nil
     var assignedPreloadedItem: CachingPlayerItem?
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
@@ -250,11 +251,18 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         }
     }
     
-    private func makeCachingPlayerItem(for url: URL) -> CachingPlayerItem {
+    private func makeCachingPlayerItem(for url: URL, bitrateKbps: Int?, durationSeconds: Double?) -> CachingPlayerItem {
         if let preloaded = assignedPreloadedItem {
             assignedPreloadedItem = nil
             preloaded.delegate = self
             preloaded.passOnObject = currentTrackIdentifier
+            // Update bitrate/duration if available
+            if let bitrate = bitrateKbps, bitrate > 0 {
+                preloaded.bitrateKbps = bitrate
+            }
+            if let duration = durationSeconds, duration > 0 {
+                preloaded.durationSeconds = duration
+            }
             return preloaded
         }
 
@@ -264,7 +272,9 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             url: url,
             saveFilePath: cacheURL.path,
             customFileExtension: resolvedExtension,
-            avUrlAssetOptions: urlOptions
+            avUrlAssetOptions: urlOptions,
+            bitrateKbps: bitrateKbps,
+            durationSeconds: durationSeconds
         )
         cachingItem.delegate = self
         cachingItem.passOnObject = currentTrackIdentifier
@@ -280,14 +290,14 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         guard let url = url else { return }
         let currentLoadSequence = nextLoadSequence()
 
-        let usesCaching = currentSourceType == .stream && !currentIsTranscoded
+        let usesCaching = currentSourceType == .stream
         let playableKeys = ["playable"]
 
         let pendingAsset: AVURLAsset
         let pendingItem: AVPlayerItem
 
         if usesCaching {
-            let cachingItem = makeCachingPlayerItem(for: url)
+            let cachingItem = makeCachingPlayerItem(for: url, bitrateKbps: currentBitrateKbps, durationSeconds: currentDurationSeconds)
             activeCachingItem = cachingItem
             pendingAsset = cachingItem.asset as? AVURLAsset ?? AVURLAsset(url: url, options: urlOptions)
             pendingItem = cachingItem
@@ -371,13 +381,14 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         })
     }
     
-    func load(from url: URL, type: SourceType = .stream, playWhenReady: Bool, options: [String: Any]? = nil, fileExtension: String? = nil, isTranscoded: Bool = false) {
+    func load(from url: URL, type: SourceType = .stream, playWhenReady: Bool, options: [String: Any]? = nil, fileExtension: String? = nil, bitrateKbps: Int? = nil, durationSeconds: Double? = nil) {
         self.playWhenReady = playWhenReady
         self.url = url
         self.urlOptions = options
         self.currentSourceType = type
         self.currentFileExtension = fileExtension
-        self.currentIsTranscoded = isTranscoded
+        self.currentBitrateKbps = bitrateKbps
+        self.currentDurationSeconds = durationSeconds
         self.load()
     }
     
@@ -388,9 +399,10 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         initialTime: TimeInterval? = nil,
         options: [String : Any]? = nil,
         fileExtension: String? = nil,
-        isTranscoded: Bool = false
+        bitrateKbps: Int? = nil,
+        durationSeconds: Double? = nil
     ) {
-        self.load(from: url, type: type, playWhenReady: playWhenReady, options: options, fileExtension: fileExtension, isTranscoded: isTranscoded)
+        self.load(from: url, type: type, playWhenReady: playWhenReady, options: options, fileExtension: fileExtension, bitrateKbps: bitrateKbps, durationSeconds: durationSeconds)
         if let initialTime = initialTime {
             self.seek(to: initialTime)
         }
@@ -403,7 +415,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         initialTime: TimeInterval? = nil,
         options: [String : Any]? = nil,
         fileExtension: String? = nil,
-        isTranscoded: Bool = false
+        bitrateKbps: Int? = nil,
+        durationSeconds: Double? = nil
     ) {
         let itemUrl: URL?
         switch type {
@@ -413,7 +426,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             itemUrl = URL(string: url)
         }
         if let itemUrl = itemUrl {
-            self.load(from: itemUrl, type: type, playWhenReady: playWhenReady, options: options, fileExtension: fileExtension, isTranscoded: isTranscoded)
+            self.load(from: itemUrl, type: type, playWhenReady: playWhenReady, options: options, fileExtension: fileExtension, bitrateKbps: bitrateKbps, durationSeconds: durationSeconds)
             if let initialTime = initialTime {
                 self.seek(to: initialTime)
             }

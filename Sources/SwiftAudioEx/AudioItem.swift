@@ -52,9 +52,17 @@ public protocol FileTypeProviding {
     func getFileType() -> String?
 }
 
-/// Make your `AudioItem`-subclass conform to this protocol to indicate if the item is transcoded.
-public protocol TranscodingProviding {
-    var isTranscoded: Bool { get }
+/// Make your `AudioItem`-subclass conform to this protocol to provide bitrate information.
+/// Only transcoded streams should have a bitrate value; non-transcoded streams should return nil.
+public protocol BitrateProviding {
+    /// The bitrate in kbps. Only set for transcoded streams.
+    var bitrateKbps: Int? { get }
+}
+
+/// Make your `AudioItem`-subclass conform to this protocol to provide duration information.
+public protocol DurationProviding {
+    /// The duration in seconds from metadata.
+    var durationSeconds: Double? { get }
 }
 
 public class DefaultAudioItem: AudioItem, Identifiable, FileTypeProviding {

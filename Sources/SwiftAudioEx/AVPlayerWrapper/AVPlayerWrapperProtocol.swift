@@ -55,11 +55,11 @@ protocol AVPlayerWrapperProtocol: AnyObject {
     
     func seek(by offset: TimeInterval)
 
-    func load(from url: URL, type: SourceType, playWhenReady: Bool, options: [String: Any]?, fileExtension: String?, isTranscoded: Bool)
+    func load(from url: URL, type: SourceType, playWhenReady: Bool, options: [String: Any]?, fileExtension: String?, bitrateKbps: Int?, durationSeconds: Double?)
     
-    func load(from url: URL, type: SourceType, playWhenReady: Bool, initialTime: TimeInterval?, options: [String: Any]?, fileExtension: String?, isTranscoded: Bool)
+    func load(from url: URL, type: SourceType, playWhenReady: Bool, initialTime: TimeInterval?, options: [String: Any]?, fileExtension: String?, bitrateKbps: Int?, durationSeconds: Double?)
     
-    func load(from url: String, type: SourceType, playWhenReady: Bool, initialTime: TimeInterval?, options: [String: Any]?, fileExtension: String?, isTranscoded: Bool)
+    func load(from url: String, type: SourceType, playWhenReady: Bool, initialTime: TimeInterval?, options: [String: Any]?, fileExtension: String?, bitrateKbps: Int?, durationSeconds: Double?)
     
     func unload()
     

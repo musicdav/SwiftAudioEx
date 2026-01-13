@@ -219,7 +219,18 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
             enableRemoteCommands(forItem: item)
             let fileType = (item as? FileTypeProviding)?.getFileType()
             
-            let isTranscoded = (item as? TranscodingProviding)?.isTranscoded ?? false
+            // Extract bitrate and duration from protocols
+            // bitrateKbps: only set for transcoded streams (nil means non-transcoded)
+            // durationSeconds: optional metadata duration for better estimation
+            let bitrateKbps: Int? = {
+                guard let bitrate = (item as? BitrateProviding)?.bitrateKbps, bitrate > 0 else { return nil }
+                return bitrate
+            }()
+            let durationSeconds: Double? = {
+                guard let duration = (item as? DurationProviding)?.durationSeconds, duration > 0 else { return nil }
+                return duration
+            }()
+            
             wrapper.load(
                 from: item.getSourceUrl(),
                 type: item.getSourceType(),
@@ -227,7 +238,8 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
                 initialTime: (item as? InitialTiming)?.getInitialTime(),
                 options:(item as? AssetOptionsProviding)?.getAssetOptions(),
                 fileExtension: fileType,
-                isTranscoded: isTranscoded
+                bitrateKbps: bitrateKbps,
+                durationSeconds: durationSeconds
             )
         }
     }

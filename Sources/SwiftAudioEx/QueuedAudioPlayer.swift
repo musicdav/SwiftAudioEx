@@ -297,7 +297,6 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         guard preloadNextTrackEnabled else { return }
         guard let nextItem = nextItems.first ?? (repeatMode == .queue ? items.first : nil) else { return }
         guard nextItem.getSourceType() == .stream else { return }
-        if (nextItem as? TranscodingProviding)?.isTranscoded == true { return }
 
         let urlString = nextItem.getSourceUrl()
         guard let url = URL(string: urlString) else { return }
@@ -312,11 +311,23 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         preloadedIdentifier = identifier
         preloadingItem?.cancelDownload()
 
+        // Extract bitrate and duration if available
+        let bitrateKbps: Int? = {
+            guard let bitrate = (nextItem as? BitrateProviding)?.bitrateKbps, bitrate > 0 else { return nil }
+            return bitrate
+        }()
+        let durationSeconds: Double? = {
+            guard let duration = (nextItem as? DurationProviding)?.durationSeconds, duration > 0 else { return nil }
+            return duration
+        }()
+
         let cachingItem = CachingPlayerItem(
             url: url,
             saveFilePath: AudioCacheManager.shared.fileURL(for: url, trackId: trackId, fileExtension: resolvedExtension).path,
             customFileExtension: resolvedExtension,
-            avUrlAssetOptions: options
+            avUrlAssetOptions: options,
+            bitrateKbps: bitrateKbps,
+            durationSeconds: durationSeconds
         )
         cachingItem.passOnObject = trackId
         if let wrapper = wrapper as? AVPlayerWrapper {
