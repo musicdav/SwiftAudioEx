@@ -1,4 +1,5 @@
 import AVFoundation
+import CachingPlayerItem
 import XCTest
 @testable import SwiftAudioEx
 
@@ -210,6 +211,46 @@ class AVPlayerWrapperTests: XCTestCase {
         XCTAssertEqual(wrapper.playerTimeObserver.periodicObserverTimeInterval, TimeEventFrequency.everySecond.getTime())
         wrapper.timeEventFrequency = .everyHalfSecond
         XCTAssertEqual(wrapper.playerTimeObserver.periodicObserverTimeInterval, TimeEventFrequency.everyHalfSecond.getTime())
+    }
+
+    func testMakeCachingPlayerItemUsesAssignedReusableItemWhenTrackIdMatches() {
+        let url = URL(string: "https://example.com/track-a.mp3")!
+        let assigned = CachingPlayerItem(
+            url: url,
+            saveFilePath: "/tmp/swiftaudioex-wrapper-match.mp3",
+            customFileExtension: "mp3",
+            avUrlAssetOptions: nil,
+            bitrateKbps: nil,
+            durationSeconds: nil
+        )
+        wrapper.currentTrackIdentifier = "track-a"
+        wrapper.assignReusableCachingItem(assigned, forTrackId: "track-a")
+
+        let created = wrapper.makeCachingPlayerItem(for: url, bitrateKbps: nil, durationSeconds: nil)
+
+        XCTAssertTrue(created === assigned)
+        XCTAssertNil(wrapper.debugAssignedReusableCachingItem)
+        XCTAssertNil(wrapper.debugAssignedReusableTrackId)
+    }
+
+    func testMakeCachingPlayerItemFallsBackWhenAssignedReusableTrackIdMismatches() {
+        let url = URL(string: "https://example.com/track-a.mp3")!
+        let assigned = CachingPlayerItem(
+            url: url,
+            saveFilePath: "/tmp/swiftaudioex-wrapper-mismatch.mp3",
+            customFileExtension: "mp3",
+            avUrlAssetOptions: nil,
+            bitrateKbps: nil,
+            durationSeconds: nil
+        )
+        wrapper.currentTrackIdentifier = "track-a"
+        wrapper.assignReusableCachingItem(assigned, forTrackId: "track-b")
+
+        let created = wrapper.makeCachingPlayerItem(for: url, bitrateKbps: nil, durationSeconds: nil)
+
+        XCTAssertFalse(created === assigned)
+        XCTAssertNil(wrapper.debugAssignedReusableCachingItem)
+        XCTAssertNil(wrapper.debugAssignedReusableTrackId)
     }
 }
 

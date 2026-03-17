@@ -1,4 +1,5 @@
 import XCTest
+import CachingPlayerItem
 @testable import SwiftAudioEx
 
 class QueuedAudioPlayerTests: XCTestCase {
@@ -316,6 +317,103 @@ class QueuedAudioPlayerTests: XCTestCase {
         // should go to previous item and play
         waitEqual(self.audioPlayer.playerState, AudioPlayerState.playing, timeout: defaultTimeout)
     }
+
+    func testForwardTransitionDetectionForAdjacentIndices() {
+        XCTAssertTrue(
+            QueuedAudioPlayer.shouldTreatAsForwardTransition(
+                from: 0,
+                to: 1,
+                pendingForwardTransition: true,
+                repeatMode: .off,
+                itemCount: 3
+            )
+        )
+    }
+
+    func testForwardTransitionDetectionForQueueWrap() {
+        XCTAssertTrue(
+            QueuedAudioPlayer.shouldTreatAsForwardTransition(
+                from: 2,
+                to: 0,
+                pendingForwardTransition: true,
+                repeatMode: .queue,
+                itemCount: 3
+            )
+        )
+    }
+
+    func testForwardTransitionDetectionDoesNotTreatNonAdjacentJumpAsForward() {
+        XCTAssertFalse(
+            QueuedAudioPlayer.shouldTreatAsForwardTransition(
+                from: 0,
+                to: 2,
+                pendingForwardTransition: true,
+                repeatMode: .off,
+                itemCount: 3
+            )
+        )
+        XCTAssertFalse(
+            QueuedAudioPlayer.shouldTreatAsForwardTransition(
+                from: 2,
+                to: 0,
+                pendingForwardTransition: false,
+                repeatMode: .queue,
+                itemCount: 3
+            )
+        )
+    }
+
+    func testReusableAssignmentPrefersPreloadedOverPreviousReusable() {
+        let current = makeStreamItem(url: "https://example.com/current.mp3")
+        let trackId = current.getSourceUrl()
+        let preloaded = makeCachingItem(url: "https://example.com/preloaded.mp3", path: "/tmp/swiftaudioex-preloaded-priority.mp3")
+        let previousReusable = makeCachingItem(url: "https://example.com/previous.mp3", path: "/tmp/swiftaudioex-previous-priority.mp3")
+        let wrapper = audioPlayer.wrapper as! AVPlayerWrapper
+
+        audioPlayer.debugInjectPreloadingItem(preloaded, trackId: trackId)
+        audioPlayer.debugInjectPreviousReusableItem(previousReusable, trackId: trackId)
+
+        audioPlayer.debugAssignReusableItemIfPossible(for: current)
+
+        XCTAssertTrue(wrapper.debugAssignedReusableCachingItem === preloaded)
+        XCTAssertEqual(wrapper.debugAssignedReusableTrackId, trackId)
+        XCTAssertNil(audioPlayer.debugPreloadingTrackId)
+        XCTAssertEqual(audioPlayer.debugPreviousReusableTrackId, trackId)
+        XCTAssertTrue(audioPlayer.debugPreviousReusableItem === previousReusable)
+    }
+
+    func testReusableAssignmentUsesPreviousReusableWhenPreloadUnavailable() {
+        let current = makeStreamItem(url: "https://example.com/current2.mp3")
+        let trackId = current.getSourceUrl()
+        let previousReusable = makeCachingItem(url: "https://example.com/previous2.mp3", path: "/tmp/swiftaudioex-previous-only.mp3")
+        let wrapper = audioPlayer.wrapper as! AVPlayerWrapper
+
+        audioPlayer.debugInjectPreviousReusableItem(previousReusable, trackId: trackId)
+        audioPlayer.debugAssignReusableItemIfPossible(for: current)
+
+        XCTAssertTrue(wrapper.debugAssignedReusableCachingItem === previousReusable)
+        XCTAssertEqual(wrapper.debugAssignedReusableTrackId, trackId)
+        XCTAssertNil(audioPlayer.debugPreviousReusableTrackId)
+        XCTAssertNil(audioPlayer.debugPreviousReusableItem)
+    }
+
+    func testReusableAssignmentSkipsMismatchedTrackId() {
+        let current = makeStreamItem(url: "https://example.com/current3.mp3")
+        let wrapper = audioPlayer.wrapper as! AVPlayerWrapper
+
+        audioPlayer.debugInjectPreloadingItem(
+            makeCachingItem(url: "https://example.com/preloaded3.mp3", path: "/tmp/swiftaudioex-preloaded-mismatch.mp3"),
+            trackId: "another-track-id"
+        )
+        audioPlayer.debugInjectPreviousReusableItem(
+            makeCachingItem(url: "https://example.com/previous3.mp3", path: "/tmp/swiftaudioex-previous-mismatch.mp3"),
+            trackId: "yet-another-track-id"
+        )
+        audioPlayer.debugAssignReusableItemIfPossible(for: current)
+
+        XCTAssertNil(wrapper.debugAssignedReusableCachingItem)
+        XCTAssertNil(wrapper.debugAssignedReusableTrackId)
+    }
     
     // MARK: - Previous
     
@@ -590,6 +688,21 @@ class QueuedAudioPlayerTests: XCTestCase {
         waitTrue(self.audioPlayer.currentTime < 1.9, timeout: defaultTimeout)
         waitEqual(self.audioPlayer.currentIndex, 0, timeout: defaultTimeout)
         waitEqual(self.audioPlayer.playerState, .playing, timeout: defaultTimeout)
+    }
+
+    private func makeStreamItem(url: String) -> AudioItem {
+        DefaultAudioItem(audioUrl: url, sourceType: .stream)
+    }
+
+    private func makeCachingItem(url: String, path: String) -> CachingPlayerItem {
+        CachingPlayerItem(
+            url: URL(string: url)!,
+            saveFilePath: path,
+            customFileExtension: "mp3",
+            avUrlAssetOptions: nil,
+            bitrateKbps: nil,
+            durationSeconds: nil
+        )
     }
 }
 

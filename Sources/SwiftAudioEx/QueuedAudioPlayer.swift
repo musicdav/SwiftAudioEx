@@ -16,6 +16,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     let queue: QueueManager = QueueManager<AudioItem>()
     fileprivate var lastIndex: Int = -1
     fileprivate var lastItem: AudioItem? = nil
+    private var pendingForwardTransition = false
 
     public override init(nowPlayingInfoController: NowPlayingInfoControllerProtocol = NowPlayingInfoController(), remoteCommandController: RemoteCommandController = RemoteCommandController()) {
         super.init(nowPlayingInfoController: nowPlayingInfoController, remoteCommandController: remoteCommandController)
@@ -50,6 +51,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     override public func clear() {
         queue.clearQueue()
         resetPreloading()
+        resetPreviousReusableItem()
         super.clear()
     }
 
@@ -120,7 +122,11 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     public func next() {
         let lastIndex = currentIndex
         let playbackWasActive = wrapper.playbackActive;
+        pendingForwardTransition = true
         _ = queue.next(wrap: repeatMode == .queue)
+        if lastIndex == currentIndex {
+            pendingForwardTransition = false
+        }
         if (playbackWasActive && lastIndex != currentIndex || repeatMode == .queue) {
             event.playbackEnd.emit(data: .skippedToNext)
         }
@@ -208,13 +214,23 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.016 * 2) { [weak self] in self?.replay() }
         } else if (repeatMode == .queue) {
             let shouldContinuePlaying = playWhenReady
+            let lastIndex = currentIndex
+            pendingForwardTransition = true
             _ = queue.next(wrap: true)
+            if lastIndex == currentIndex {
+                pendingForwardTransition = false
+            }
             if shouldContinuePlaying && !playWhenReady {
                 playWhenReady = true
             }
         } else if (currentIndex != items.count - 1) {
             let shouldContinuePlaying = playWhenReady
+            let lastIndex = currentIndex
+            pendingForwardTransition = true
             _ = queue.next(wrap: false)
+            if lastIndex == currentIndex {
+                pendingForwardTransition = false
+            }
             if shouldContinuePlaying && !playWhenReady {
                 playWhenReady = true
             }
@@ -227,16 +243,18 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
     func onCurrentItemChanged() {
         let lastPosition = currentTime;
+        let didAdvanceForward = isForwardTransition(from: lastIndex, to: currentIndex)
+        if didAdvanceForward,
+           let previousItem = lastItem,
+           previousItem.getSourceType() == .stream,
+           let wrapper = wrapper as? AVPlayerWrapper,
+           let reusableItem = wrapper.takeActiveCachingItemForReuse()
+        {
+            setPreviousReusableItem(reusableItem, trackId: trackKey(for: previousItem))
+        }
+
         if let currentItem = currentItem {
-            if
-                let id = Optional(currentItem).map(trackKey(for:)),
-                id == preloadingTrackId,
-                let item = preloadingItem
-            {
-                (wrapper as? AVPlayerWrapper)?.assignedPreloadedItem = item
-                preloadingItem = nil
-                preloadingTrackId = nil
-            }
+            assignReusableItemIfPossible(for: currentItem)
             super.load(item: currentItem)
         } else {
             super.clear()
@@ -252,9 +270,11 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         )
         lastItem = currentItem
         lastIndex = currentIndex
+        pendingForwardTransition = false
     }
 
     func onSkippedToSameCurrentItem() {
+        pendingForwardTransition = false
         if (wrapper.playbackActive) {
             replay()
         }
@@ -268,12 +288,20 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     private var preloadedIdentifier: String?
     private var preloadingItem: CachingPlayerItem?
     private var preloadingTrackId: String?
+    private var previousReusableItem: CachingPlayerItem?
+    private var previousReusableTrackId: String?
 
     private func resetPreloading() {
         preloadingItem?.cancelDownload()
         preloadingItem = nil
         preloadedIdentifier = nil
         preloadingTrackId = nil
+    }
+
+    private func resetPreviousReusableItem() {
+        previousReusableItem?.cancelDownload()
+        previousReusableItem = nil
+        previousReusableTrackId = nil
     }
     
     private func trackKey(for item: AudioItem) -> String {
@@ -290,6 +318,57 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         super.AVWrapper(didChangeState: state)
         if state == .playing, preloadNextTrackEnabled {
             preloadNextIfNeeded()
+        }
+    }
+
+    private func isForwardTransition(from previousIndex: Int, to newIndex: Int) -> Bool {
+        Self.shouldTreatAsForwardTransition(
+            from: previousIndex,
+            to: newIndex,
+            pendingForwardTransition: pendingForwardTransition,
+            repeatMode: repeatMode,
+            itemCount: items.count
+        )
+    }
+
+    static func shouldTreatAsForwardTransition(
+        from previousIndex: Int,
+        to newIndex: Int,
+        pendingForwardTransition: Bool,
+        repeatMode: RepeatMode,
+        itemCount: Int
+    ) -> Bool {
+        guard pendingForwardTransition else { return false }
+        guard previousIndex >= 0, newIndex >= 0, previousIndex != newIndex else { return false }
+        if newIndex == previousIndex + 1 {
+            return true
+        }
+        return repeatMode == .queue && itemCount > 0 && previousIndex == itemCount - 1 && newIndex == 0
+    }
+
+    private func setPreviousReusableItem(_ item: CachingPlayerItem, trackId: String) {
+        if let existing = previousReusableItem, existing !== item {
+            existing.cancelDownload()
+        }
+        previousReusableItem = item
+        previousReusableTrackId = trackId
+    }
+
+    private func assignReusableItemIfPossible(for item: AudioItem) {
+        let trackId = trackKey(for: item)
+        guard let wrapper = wrapper as? AVPlayerWrapper else { return }
+
+        if trackId == preloadingTrackId, let preloadedItem = preloadingItem {
+            wrapper.assignReusableCachingItem(preloadedItem, forTrackId: trackId)
+            preloadingItem = nil
+            preloadingTrackId = nil
+            return
+        }
+
+        if trackId == previousReusableTrackId, let previousItem = previousReusableItem {
+            wrapper.assignReusableCachingItem(previousItem, forTrackId: trackId)
+            previousReusableItem = nil
+            previousReusableTrackId = nil
         }
     }
 
@@ -341,3 +420,28 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         cachingItem.download()
     }
 }
+
+#if DEBUG
+extension QueuedAudioPlayer {
+    var debugPreloadingTrackId: String? { preloadingTrackId }
+    var debugPreviousReusableTrackId: String? { previousReusableTrackId }
+    var debugPreviousReusableItem: CachingPlayerItem? { previousReusableItem }
+
+    func debugInjectPreloadingItem(_ item: CachingPlayerItem?, trackId: String?, identifier: String? = nil) {
+        preloadingItem = item
+        preloadingTrackId = trackId
+        if let identifier = identifier {
+            preloadedIdentifier = identifier
+        }
+    }
+
+    func debugInjectPreviousReusableItem(_ item: CachingPlayerItem?, trackId: String?) {
+        previousReusableItem = item
+        previousReusableTrackId = trackId
+    }
+
+    func debugAssignReusableItemIfPossible(for item: AudioItem) {
+        assignReusableItemIfPossible(for: item)
+    }
+}
+#endif

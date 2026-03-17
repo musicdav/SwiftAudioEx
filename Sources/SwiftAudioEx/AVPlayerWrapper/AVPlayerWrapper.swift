@@ -39,7 +39,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private var currentBitrateKbps: Int? = nil
     private var currentDurationSeconds: Double? = nil
     private var activeCachingItem: CachingPlayerItem? = nil
-    var assignedPreloadedItem: CachingPlayerItem?
+    private var assignedReusableCachingItem: CachingPlayerItem?
+    private var assignedReusableTrackId: String?
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
     private var loadSequence: UInt = 0
     fileprivate let stateQueue = DispatchQueue(
@@ -250,13 +251,39 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             loadSequence == sequence
         }
     }
-    
-    private func makeCachingPlayerItem(for url: URL, bitrateKbps: Int?, durationSeconds: Double?) -> CachingPlayerItem {
-        if let preloaded = assignedPreloadedItem {
-            assignedPreloadedItem = nil
-            preloaded.delegate = self
-            preloaded.passOnObject = currentTrackIdentifier
-            return preloaded
+
+    func assignReusableCachingItem(_ item: CachingPlayerItem, forTrackId trackId: String) {
+        if let assigned = assignedReusableCachingItem, assigned !== item {
+            assigned.delegate = nil
+            assigned.cancelDownload()
+        }
+        assignedReusableCachingItem = item
+        assignedReusableTrackId = trackId
+    }
+
+    func takeActiveCachingItemForReuse() -> CachingPlayerItem? {
+        let item = activeCachingItem
+        activeCachingItem = nil
+        item?.delegate = nil
+        return item
+    }
+
+    func makeCachingPlayerItem(for url: URL, bitrateKbps: Int?, durationSeconds: Double?) -> CachingPlayerItem {
+        if let reusable = assignedReusableCachingItem {
+            let reusableTrackId = assignedReusableTrackId
+            assignedReusableCachingItem = nil
+            assignedReusableTrackId = nil
+
+            if currentTrackIdentifier == reusableTrackId {
+                reusable.delegate = self
+                reusable.passOnObject = currentTrackIdentifier
+                return reusable
+            } else {
+                reusable.delegate = nil
+                if reusable.isCaching {
+                    reusable.cancelDownload()
+                }
+            }
         }
 
         let resolvedExtension = AudioCacheManager.shared.resolvedFileExtension(for: url, customFileExtension: currentFileExtension)
@@ -628,3 +655,10 @@ extension AVPlayerWrapper: CachingPlayerItemDelegate {
         playbackFailed(error: AudioPlayerError.PlaybackError.playbackFailed)
     }
 }
+
+#if DEBUG
+extension AVPlayerWrapper {
+    var debugAssignedReusableCachingItem: CachingPlayerItem? { assignedReusableCachingItem }
+    var debugAssignedReusableTrackId: String? { assignedReusableTrackId }
+}
+#endif
