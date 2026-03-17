@@ -41,7 +41,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private var activeCachingItem: CachingPlayerItem? = nil
     private var assignedReusableCachingItem: CachingPlayerItem?
     private var assignedReusableTrackId: String?
-    private var shouldPreserveCurrentAssetOnClear = false
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
     private var loadSequence: UInt = 0
     fileprivate let stateQueue = DispatchQueue(
@@ -266,7 +265,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         let item = activeCachingItem
         activeCachingItem = nil
         item?.delegate = nil
-        shouldPreserveCurrentAssetOnClear = item != nil
         return item
     }
 
@@ -484,9 +482,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
 
     private func clearCurrentItem() {
         stopObservingAVPlayerItem()
-
-        let assetToCancel = shouldPreserveCurrentAssetOnClear ? nil : asset
-        shouldPreserveCurrentAssetOnClear = false
+        
+        let assetToCancel = asset
         let cachingItemToCancel = activeCachingItem
         
         cachingItemToCancel?.delegate = nil
