@@ -370,7 +370,6 @@ class QueuedAudioPlayerTests: XCTestCase {
         let previousReusable = makeCachingItem(url: "https://example.com/previous.mp3", path: "/tmp/swiftaudioex-previous-priority.mp3")
         let wrapper = audioPlayer.wrapper as! AVPlayerWrapper
 
-        audioPlayer.continueDownloadingPreviousTrackOnForwardTransition = true
         audioPlayer.debugInjectPreloadingItem(preloaded, trackId: trackId)
         audioPlayer.debugInjectPreviousReusableItem(previousReusable, trackId: trackId)
 
@@ -389,28 +388,11 @@ class QueuedAudioPlayerTests: XCTestCase {
         let previousReusable = makeCachingItem(url: "https://example.com/previous2.mp3", path: "/tmp/swiftaudioex-previous-only.mp3")
         let wrapper = audioPlayer.wrapper as! AVPlayerWrapper
 
-        audioPlayer.continueDownloadingPreviousTrackOnForwardTransition = true
         audioPlayer.debugInjectPreviousReusableItem(previousReusable, trackId: trackId)
         audioPlayer.debugAssignReusableItemIfPossible(for: current)
 
         XCTAssertTrue(wrapper.debugAssignedReusableCachingItem === previousReusable)
         XCTAssertEqual(wrapper.debugAssignedReusableTrackId, trackId)
-        XCTAssertNil(audioPlayer.debugPreviousReusableTrackId)
-        XCTAssertNil(audioPlayer.debugPreviousReusableItem)
-    }
-
-    func testReusableAssignmentCancelsPreviousReusableWhenContinueDisabled() {
-        let current = makeStreamItem(url: "https://example.com/current-disabled.mp3")
-        let trackId = current.getSourceUrl()
-        let previousReusable = makeCachingItem(url: "https://example.com/previous-disabled.mp3", path: "/tmp/swiftaudioex-previous-disabled.mp3")
-        let wrapper = audioPlayer.wrapper as! AVPlayerWrapper
-
-        audioPlayer.continueDownloadingPreviousTrackOnForwardTransition = false
-        audioPlayer.debugInjectPreviousReusableItem(previousReusable, trackId: trackId)
-        audioPlayer.debugAssignReusableItemIfPossible(for: current)
-
-        XCTAssertNil(wrapper.debugAssignedReusableCachingItem)
-        XCTAssertNil(wrapper.debugAssignedReusableTrackId)
         XCTAssertNil(audioPlayer.debugPreviousReusableTrackId)
         XCTAssertNil(audioPlayer.debugPreviousReusableItem)
     }
