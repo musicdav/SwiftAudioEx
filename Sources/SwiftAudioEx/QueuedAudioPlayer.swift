@@ -25,6 +25,15 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
     /// The repeat mode for the queue player.
     public var repeatMode: RepeatMode = .off
+    /// Whether a forward transition should keep the previous track's download alive for reuse.
+    /// Set to `false` to cancel the previous track download when switching songs.
+    public var continueDownloadingPreviousTrackOnForwardTransition: Bool = false {
+        didSet {
+            if !continueDownloadingPreviousTrackOnForwardTransition {
+                resetPreviousReusableItem()
+            }
+        }
+    }
     public var preloadNextTrackEnabled: Bool = true {
         didSet {
             if preloadNextTrackEnabled {
@@ -245,12 +254,15 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         let lastPosition = currentTime;
         let didAdvanceForward = isForwardTransition(from: lastIndex, to: currentIndex)
         if didAdvanceForward,
+           continueDownloadingPreviousTrackOnForwardTransition,
            let previousItem = lastItem,
            previousItem.getSourceType() == .stream,
            let wrapper = wrapper as? AVPlayerWrapper,
            let reusableItem = wrapper.takeActiveCachingItemForReuse()
         {
             setPreviousReusableItem(reusableItem, trackId: trackKey(for: previousItem))
+        } else if didAdvanceForward {
+            resetPreviousReusableItem()
         }
 
         if let currentItem = currentItem {
@@ -362,6 +374,11 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             wrapper.assignReusableCachingItem(preloadedItem, forTrackId: trackId)
             preloadingItem = nil
             preloadingTrackId = nil
+            return
+        }
+
+        guard continueDownloadingPreviousTrackOnForwardTransition else {
+            resetPreviousReusableItem()
             return
         }
 
