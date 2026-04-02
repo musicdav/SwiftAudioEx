@@ -19,6 +19,8 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
     public let event = EventHolder()
 
     private(set) var currentItem: AudioItem?
+    private var lastReportedDuration: Double?
+    private let durationChangeEpsilon: Double = 0.001
 
     /**
      Set this to false to disable automatic updating of now playing info for control center and lock screen.
@@ -199,6 +201,7 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
     public func load(item: AudioItem, playWhenReady: Bool? = nil) {
         handlePlayWhenReady(playWhenReady) {
             currentItem = item
+            lastReportedDuration = nil
             if let wrapper = wrapper as? AVPlayerWrapper {
                 wrapper.currentTrackIdentifier = item.getTrackIdentifier() ?? item.getSourceUrl()
             }
@@ -362,6 +365,7 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
     public func clear() {
         let playbackWasActive = wrapper.playbackActive
         currentItem = nil
+        lastReportedDuration = nil
         wrapper.unload()
         nowPlayingInfoController.clear()
         if (playbackWasActive) {
@@ -433,7 +437,13 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
 
     func AVWrapper(didUpdateDuration duration: Double) {
         event.updateDuration.emit(data: duration)
-        if automaticallyUpdateNowPlayingInfo {
+        let hasDurationChanged: Bool = {
+            guard duration.isFinite else { return true }
+            guard let lastDuration = lastReportedDuration, lastDuration.isFinite else { return true }
+            return abs(lastDuration - duration) > durationChangeEpsilon
+        }()
+        lastReportedDuration = duration.isFinite ? duration : nil
+        if automaticallyUpdateNowPlayingInfo && hasDurationChanged {
             updateNowPlayingPlaybackValues()
         }
     }

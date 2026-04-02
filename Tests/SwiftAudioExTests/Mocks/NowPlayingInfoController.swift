@@ -13,6 +13,7 @@ import MediaPlayer
 
 class NowPlayingInfoController_Mock: NowPlayingInfoControllerProtocol {
     var info: [String: Any] = [:]
+    private(set) var setKeyValuesCallCount: Int = 0
     
     required public init() {
     }
@@ -21,6 +22,7 @@ class NowPlayingInfoController_Mock: NowPlayingInfoControllerProtocol {
     }
     
     public func set(keyValues: [NowPlayingInfoKeyValue]) {
+        setKeyValuesCallCount += 1
         keyValues.forEach { (keyValue) in
             info[keyValue.getKey()] = keyValue.getValue()
         }

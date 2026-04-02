@@ -39,4 +39,18 @@ class NowPlayingInfoTests: XCTestCase {
         XCTAssertNotNil(nowPlayingController.getDuration())
         XCTAssertNotNil(nowPlayingController.getCurrentTime())
     }
+
+    func testNowPlayingPlaybackValuesUpdatedOnlyWhenDurationChanges() {
+        let initialCallCount = nowPlayingController.setKeyValuesCallCount
+
+        audioPlayer.AVWrapper(didUpdateDuration: 120)
+        let firstUpdateCallCount = nowPlayingController.setKeyValuesCallCount
+        XCTAssertEqual(firstUpdateCallCount, initialCallCount + 1)
+
+        audioPlayer.AVWrapper(didUpdateDuration: 120)
+        XCTAssertEqual(nowPlayingController.setKeyValuesCallCount, firstUpdateCallCount)
+
+        audioPlayer.AVWrapper(didUpdateDuration: 121)
+        XCTAssertEqual(nowPlayingController.setKeyValuesCallCount, firstUpdateCallCount + 1)
+    }
 }
