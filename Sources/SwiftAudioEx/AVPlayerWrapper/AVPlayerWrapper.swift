@@ -40,10 +40,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private var currentDurationSeconds: Double? = nil
     private var activeCachingItem: CachingPlayerItem? = nil
     var assignedPreloadedItem: CachingPlayerItem?
-    /// Deferred work item for external pause detection.
-    /// When AVPlayer pauses near the end of a track, we defer the "external pause"
-    /// decision to give `itemDidPlayToEndTime` a chance to fire first and cancel it.
-    private var deferredPauseWorkItem: DispatchWorkItem?
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
     private var loadSequence: UInt = 0
     fileprivate let stateQueue = DispatchQueue(
@@ -458,8 +454,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     // MARK: - Util
 
     private func clearCurrentItem() {
-        deferredPauseWorkItem?.cancel()
-        deferredPauseWorkItem = nil
         stopObservingAVPlayerItem()
         
         let assetToCancel = asset
@@ -534,29 +528,11 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
             if self.asset == nil && state != .stopped {
                 self.state = .idle
             } else if (state != .failed && state != .stopped) {
-                // When AVPlayer reaches the end of audio data, it fires
-                // timeControlStatus → .paused BEFORE itemDidPlayToEndTime.
-                // We must NOT immediately set playWhenReady = false here,
-                // because that would prevent the next track from auto-playing.
-                //
-                // Instead, we defer the "external pause" decision by a short delay.
-                // If itemDidPlayToEndTime fires within this window (natural end of track),
-                // it will cancel the deferred pause, preserving playWhenReady = true.
-                // If it doesn't fire (true external pause like bluetooth disconnect),
-                // the deferred work item will execute and set playWhenReady = false.
+                // Playback may have become paused externally for example due to a bluetooth device disconnecting:
                 if (self.playWhenReady) {
+                    // Only if we are not on the boundaries of the track, otherwise itemDidPlayToEndTime will handle it instead.
                     if (self.currentTime > 0 && self.currentTime < self.duration) {
-                        self.deferredPauseWorkItem?.cancel()
-                        let workItem = DispatchWorkItem { [weak self] in
-                            guard let self = self else { return }
-                            self.deferredPauseWorkItem = nil
-                            // Re-check: only pause if still playing and not already handled
-                            if self.playWhenReady && self.state != .ended && self.state != .idle && self.state != .stopped {
-                                self.playWhenReady = false
-                            }
-                        }
-                        self.deferredPauseWorkItem = workItem
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
+                        self.playWhenReady = false;
                     }
                 } else {
                     self.state = .paused
@@ -567,8 +543,6 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
                 self.state = .buffering
             }
         case .playing:
-            self.deferredPauseWorkItem?.cancel()
-            self.deferredPauseWorkItem = nil
             self.state = .playing
         @unknown default:
             break
@@ -613,10 +587,6 @@ extension AVPlayerWrapper: AVPlayerItemNotificationObserverDelegate {
     }
     
     func itemDidPlayToEndTime() {
-        // Cancel any deferred external-pause detection.
-        // This pause was caused by natural end-of-track, not external interruption.
-        deferredPauseWorkItem?.cancel()
-        deferredPauseWorkItem = nil
         delegate?.AVWrapperItemDidPlayToEndTime()
     }
     
