@@ -42,7 +42,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private var activeCachingItem: CachingPlayerItem? = nil
     private var hasHandledPlaybackEndForCurrentItem = false
     private var shouldPreservePausedState = false
-    private let pausedPlaybackEndToleranceSeconds: TimeInterval = 0.25
     var assignedPreloadedItem: CachingPlayerItem?
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
     private var loadSequence: UInt = 0
@@ -263,18 +262,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         if shouldPauseState {
             state = .paused
         }
-    }
-
-    private func shouldTreatPauseAsPlaybackEnd(from state: AVPlayerWrapperState) -> Bool {
-        guard (state == .playing || state == .buffering) else { return false }
-        guard !shouldPreservePausedState else { return false }
-
-        let duration = self.duration
-        let currentTime = self.currentTime
-        guard duration.isFinite, duration > 0 else { return false }
-        guard currentTime.isFinite, currentTime > 0 else { return false }
-
-        return currentTime >= max(0, duration - pausedPlaybackEndToleranceSeconds)
     }
 
     private func nextLoadSequence() -> UInt {
@@ -568,11 +555,11 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
                 self.state = .idle
             } else if (state != .failed && state != .stopped && state != .ended) {
                 if self.playWhenReady {
-                    if shouldTreatPauseAsPlaybackEnd(from: state) {
+                    switch state {
+                    case .playing, .buffering:
                         finishPlaybackIfNeeded()
-                    } else if state == .playing || state == .buffering {
-                        self.playWhenReady = false
-                        self.state = .paused
+                    default:
+                        break
                     }
                 } else {
                     self.state = .paused

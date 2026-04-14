@@ -212,7 +212,27 @@ class AVPlayerWrapperTests: XCTestCase {
         XCTAssertEqual(wrapper.playerTimeObserver.periodicObserverTimeInterval, TimeEventFrequency.everyHalfSecond.getTime())
     }
 
-    func testUnexpectedPauseWhilePlayingDoesNotTriggerPlaybackEnd() {
+    func testUnexpectedPauseWhilePlayingIsHandledAsPlaybackEnd() {
+        let playingExpectation = XCTestExpectation(description: "Wrapper entered playing state")
+        let endedExpectation = XCTestExpectation(description: "Wrapper forwarded playback end")
+        holder.stateUpdate = { state in
+            if state == .playing {
+                playingExpectation.fulfill()
+            }
+        }
+        holder.itemDidComplete = {
+            endedExpectation.fulfill()
+        }
+
+        wrapper.load(from: LongSource.url, playWhenReady: true)
+        wait(for: [playingExpectation], timeout: defaultTimeout)
+
+        wrapper.player(didChangeTimeControlStatus: .paused)
+
+        wait(for: [endedExpectation], timeout: defaultTimeout)
+    }
+
+    func testPlaybackEndIsOnlyForwardedOnceWhenPauseComesBeforeNotification() {
         let playingExpectation = XCTestExpectation(description: "Wrapper entered playing state")
         holder.stateUpdate = { state in
             if state == .playing {
@@ -224,28 +244,6 @@ class AVPlayerWrapperTests: XCTestCase {
         wait(for: [playingExpectation], timeout: defaultTimeout)
 
         wrapper.player(didChangeTimeControlStatus: .paused)
-
-        let settleExpectation = XCTestExpectation(description: "Allow pause handling to settle")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            settleExpectation.fulfill()
-        }
-        wait(for: [settleExpectation], timeout: defaultTimeout)
-
-        XCTAssertEqual(holder.playbackEndCount, 0)
-    }
-
-    func testPlaybackEndIsOnlyForwardedOnceWhenNotificationComesTwice() {
-        let playingExpectation = XCTestExpectation(description: "Wrapper entered playing state")
-        holder.stateUpdate = { state in
-            if state == .playing {
-                playingExpectation.fulfill()
-            }
-        }
-
-        wrapper.load(from: LongSource.url, playWhenReady: true)
-        wait(for: [playingExpectation], timeout: defaultTimeout)
-
-        wrapper.itemDidPlayToEndTime()
         wrapper.itemDidPlayToEndTime()
 
         waitEqual(self.holder.playbackEndCount, 1, timeout: defaultTimeout)
