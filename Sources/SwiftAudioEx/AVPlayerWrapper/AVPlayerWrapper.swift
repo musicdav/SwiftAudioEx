@@ -598,7 +598,6 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
             hasHandledPlaybackEndForCurrentItem = false
             hasPendingSystemPause = false
             shouldPreservePausedState = false
-            hasStartedPlaybackForCurrentItem = true
             self.state = .playing
         @unknown default:
             break
@@ -626,6 +625,9 @@ extension AVPlayerWrapper: AVPlayerTimeObserverDelegate {
     }
     
     func timeEvent(time: CMTime) {
+        if time.seconds > 0 {
+            hasStartedPlaybackForCurrentItem = true
+        }
         delegate?.AVWrapper(secondsElapsed: time.seconds)
     }
     
@@ -644,6 +646,9 @@ extension AVPlayerWrapper: AVPlayerItemNotificationObserverDelegate {
     }
     
     func itemDidPlayToEndTime() {
+        if !hasStartedPlaybackForCurrentItem && currentTime <= 0 {
+            return
+        }
         finishPlaybackIfNeeded()
     }
     
