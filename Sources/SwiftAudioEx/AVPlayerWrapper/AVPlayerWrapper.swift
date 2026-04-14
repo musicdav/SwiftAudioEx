@@ -569,7 +569,13 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
                         self.playWhenReady = false;
                         self.state = .paused
                     } else {
-                        finishPlaybackIfNeeded()
+                        // Ignore transient pauses before playback has actually started.
+                        switch state {
+                        case .playing, .buffering:
+                            finishPlaybackIfNeeded()
+                        default:
+                            break
+                        }
                     }
                 } else {
                     hasPendingSystemPause = false
