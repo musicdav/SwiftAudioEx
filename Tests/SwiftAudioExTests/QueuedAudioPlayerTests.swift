@@ -276,6 +276,25 @@ class QueuedAudioPlayerTests: XCTestCase {
         XCTAssertEqual(audioPlayer.currentItem?.getSourceUrl(), Source.getAudioItem().getSourceUrl())
         waitEqual(self.playerStateEventListener.statesWithoutBuffering.prefix(4), [.loading, .playing, .loading, .playing], timeout: defaultTimeout)
     }
+
+    func testLoadItemWhilePlayingDoesNotAutoSkipToNextItem() {
+        audioPlayer.play()
+        audioPlayer.add(items: [FiveSecondSource.getAudioItem(), ShortSource.getAudioItem()])
+        waitEqual(self.audioPlayer.playerState, .playing, timeout: defaultTimeout)
+
+        audioPlayer.load(item: Source.getAudioItem())
+
+        let settleExpectation = XCTestExpectation(description: "Allow status updates to settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            settleExpectation.fulfill()
+        }
+        wait(for: [settleExpectation], timeout: defaultTimeout)
+
+        XCTAssertEqual(audioPlayer.currentIndex, 0)
+        XCTAssertEqual(audioPlayer.nextItems.count, 1)
+        XCTAssertEqual(audioPlayer.currentItem?.getSourceUrl(), Source.getAudioItem().getSourceUrl())
+        XCTAssertNotEqual(playbackEndEventListener.lastReason, .playedUntilEnd)
+    }
     
     // MARK: - Next
     
