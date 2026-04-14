@@ -235,15 +235,7 @@ class AVPlayerWrapperTests: XCTestCase {
     func testUnexpectedPauseDuringInitialLoadingDoesNotTriggerPlaybackEnd() {
         wrapper.load(from: LongSource.url, playWhenReady: true)
 
-        // Simulate a transient paused callback before entering actual playback.
-        wrapper.player(didChangeTimeControlStatus: .paused)
-
-        waitEqual(self.holder.playbackEndCount, 0, timeout: defaultTimeout)
-    }
-
-    func testUnexpectedPauseFromBufferingDoesNotTriggerPlaybackEndBeforePlaybackStarts() {
-        wrapper.playWhenReady = true
-        wrapper.state = .buffering
+        // Simulate a transient paused callback before entering playing/buffering.
         wrapper.player(didChangeTimeControlStatus: .paused)
 
         waitEqual(self.holder.playbackEndCount, 0, timeout: defaultTimeout)

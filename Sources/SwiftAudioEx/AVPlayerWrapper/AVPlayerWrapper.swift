@@ -43,7 +43,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private var hasHandledPlaybackEndForCurrentItem = false
     private var hasPendingSystemPause = false
     private var shouldPreservePausedState = false
-    private var hasStartedPlaybackForCurrentItem = false
     var assignedPreloadedItem: CachingPlayerItem?
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
     private var loadSequence: UInt = 0
@@ -248,7 +247,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         hasHandledPlaybackEndForCurrentItem = true
         hasPendingSystemPause = false
         shouldPreservePausedState = false
-        hasStartedPlaybackForCurrentItem = false
         state = .failed
         self.playbackError = error
         self.delegate?.AVWrapper(failedWithError: error)
@@ -259,7 +257,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         hasHandledPlaybackEndForCurrentItem = true
         hasPendingSystemPause = false
         shouldPreservePausedState = false
-        hasStartedPlaybackForCurrentItem = false
         delegate?.AVWrapperItemDidPlayToEndTime()
     }
 
@@ -316,7 +313,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         hasHandledPlaybackEndForCurrentItem = false
         hasPendingSystemPause = false
         shouldPreservePausedState = false
-        hasStartedPlaybackForCurrentItem = false
         guard let url = url else { return }
         let currentLoadSequence = nextLoadSequence()
 
@@ -492,11 +488,6 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         hasHandledPlaybackEndForCurrentItem = false
         hasPendingSystemPause = false
         shouldPreservePausedState = false
-        hasStartedPlaybackForCurrentItem = false
-        let hadCurrentItem = avPlayer.currentItem != nil
-        if hadCurrentItem {
-            timeToSeekToAfterLoading = nil
-        }
         stopObservingAVPlayerItem()
         
         let assetToCancel = asset
@@ -578,8 +569,9 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
                         self.playWhenReady = false;
                         self.state = .paused
                     } else {
+                        // Ignore transient pauses before playback has actually started.
                         switch state {
-                        case .playing where hasStartedPlaybackForCurrentItem:
+                        case .playing, .buffering:
                             finishPlaybackIfNeeded()
                         default:
                             break
@@ -598,7 +590,6 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
             hasHandledPlaybackEndForCurrentItem = false
             hasPendingSystemPause = false
             shouldPreservePausedState = false
-            hasStartedPlaybackForCurrentItem = true
             self.state = .playing
         @unknown default:
             break
@@ -621,7 +612,6 @@ extension AVPlayerWrapper: AVPlayerTimeObserverDelegate {
     // MARK: - AVPlayerTimeObserverDelegate
     
     func audioDidStart() {
-        hasStartedPlaybackForCurrentItem = true
         state = .playing
     }
     
@@ -693,6 +683,7 @@ extension AVPlayerWrapper: CachingPlayerItemDelegate {
         let isActiveItem = playerItem === activeCachingItem
         let trackId = (playerItem.passOnObject as? String)
             ?? (isActiveItem ? (currentTrackIdentifier ?? url?.absoluteString) : nil)
+        print("[CachingPlayerItem] download finished. trackId=\(trackId ?? "unknown") path=\(filePath)")
         delegate?.AVWrapper(trackFullyLoaded: trackId, filePath: filePath)
     }
 
