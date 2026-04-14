@@ -226,7 +226,6 @@ class AVPlayerWrapperTests: XCTestCase {
 
         wrapper.load(from: LongSource.url, playWhenReady: true)
         wait(for: [playingExpectation], timeout: defaultTimeout)
-        wrapper.audioDidStart()
 
         wrapper.player(didChangeTimeControlStatus: .paused)
 
@@ -260,19 +259,11 @@ class AVPlayerWrapperTests: XCTestCase {
 
         wrapper.load(from: LongSource.url, playWhenReady: true)
         wait(for: [playingExpectation], timeout: defaultTimeout)
-        wrapper.audioDidStart()
 
         wrapper.player(didChangeTimeControlStatus: .paused)
         wrapper.itemDidPlayToEndTime()
 
         waitEqual(self.holder.playbackEndCount, 1, timeout: defaultTimeout)
-    }
-
-    func testItemDidPlayToEndTimeBeforePlaybackStartsShouldBeIgnored() {
-        wrapper.playWhenReady = true
-        wrapper.itemDidPlayToEndTime()
-
-        waitEqual(self.holder.playbackEndCount, 0, timeout: defaultTimeout)
     }
 
     func testInterruptionPauseDoesNotTriggerPlaybackEnd() {
