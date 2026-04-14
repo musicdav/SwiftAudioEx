@@ -29,6 +29,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     internal let playerTimeObserver: AVPlayerTimeObserver
     private let playerItemNotificationObserver = AVPlayerItemNotificationObserver()
     private let playerItemObserver = AVPlayerItemObserver()
+    private let audioSessionPauseObserver = AVAudioSessionPauseObserver()
     fileprivate var timeToSeekToAfterLoading: TimeInterval?
     fileprivate var asset: AVAsset? = nil
     fileprivate var item: AVPlayerItem? = nil
@@ -39,6 +40,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private var currentBitrateKbps: Int? = nil
     private var currentDurationSeconds: Double? = nil
     private var activeCachingItem: CachingPlayerItem? = nil
+    private var hasHandledPlaybackEndForCurrentItem = false
+    private var shouldPreservePausedState = false
     var assignedPreloadedItem: CachingPlayerItem?
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
     private var loadSequence: UInt = 0
@@ -56,6 +59,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         playerTimeObserver.delegate = self
         playerItemNotificationObserver.delegate = self
         playerItemObserver.delegate = self
+        audioSessionPauseObserver.delegate = self
 
         setupAVPlayer();
     }
@@ -179,10 +183,13 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     func play() {
+        hasHandledPlaybackEndForCurrentItem = false
+        shouldPreservePausedState = false
         playWhenReady = true
     }
     
     func pause() {
+        shouldPreservePausedState = true
         playWhenReady = false
     }
     
@@ -198,6 +205,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     func stop() {
+        shouldPreservePausedState = false
         state = .stopped
         clearCurrentItem()
         playWhenReady = false
@@ -233,9 +241,27 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     private func playbackFailed(error: AudioPlayerError.PlaybackError) {
+        hasHandledPlaybackEndForCurrentItem = true
+        shouldPreservePausedState = false
         state = .failed
         self.playbackError = error
         self.delegate?.AVWrapper(failedWithError: error)
+    }
+
+    private func finishPlaybackIfNeeded() {
+        guard !hasHandledPlaybackEndForCurrentItem else { return }
+        hasHandledPlaybackEndForCurrentItem = true
+        shouldPreservePausedState = false
+        delegate?.AVWrapperItemDidPlayToEndTime()
+    }
+
+    private func handleSystemPause() {
+        let shouldPauseState = playWhenReady || state == .playing || state == .buffering
+        shouldPreservePausedState = true
+        playWhenReady = false
+        if shouldPauseState {
+            state = .paused
+        }
     }
 
     private func nextLoadSequence() -> UInt {
@@ -251,7 +277,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         }
     }
     
-    private func makeCachingPlayerItem(for url: URL, bitrateKbps: Int?, durationSeconds: Double?) -> CachingPlayerItem {
+    private func makeCachingPlayerItem(for url: URL) -> CachingPlayerItem {
         if let preloaded = assignedPreloadedItem {
             assignedPreloadedItem = nil
             preloaded.delegate = self
@@ -261,15 +287,11 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
 
         let resolvedExtension = AudioCacheManager.shared.resolvedFileExtension(for: url, customFileExtension: currentFileExtension)
         let cacheURL = AudioCacheManager.shared.fileURL(for: url, trackId: currentTrackIdentifier, fileExtension: resolvedExtension)
-        // Convert Int bitrateKbps to Double for CachingPlayerItem
-        let bitrateDouble: Double? = bitrateKbps.map { Double($0) }
         let cachingItem = CachingPlayerItem(
             url: url,
             saveFilePath: cacheURL.path,
             customFileExtension: resolvedExtension,
-            avUrlAssetOptions: urlOptions,
-            bitrateKbps: bitrateDouble,
-            durationSeconds: durationSeconds
+            avUrlAssetOptions: urlOptions
         )
         cachingItem.delegate = self
         cachingItem.passOnObject = currentTrackIdentifier
@@ -282,6 +304,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         } else {
             clearCurrentItem()
         }
+        hasHandledPlaybackEndForCurrentItem = false
+        shouldPreservePausedState = false
         guard let url = url else { return }
         let currentLoadSequence = nextLoadSequence()
 
@@ -292,7 +316,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         let pendingItem: AVPlayerItem
 
         if usesCaching {
-            let cachingItem = makeCachingPlayerItem(for: url, bitrateKbps: currentBitrateKbps, durationSeconds: currentDurationSeconds)
+            let cachingItem = makeCachingPlayerItem(for: url)
             activeCachingItem = cachingItem
             pendingAsset = cachingItem.asset as? AVURLAsset ?? AVURLAsset(url: url, options: urlOptions)
             pendingItem = cachingItem
@@ -454,6 +478,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     // MARK: - Util
 
     private func clearCurrentItem() {
+        hasHandledPlaybackEndForCurrentItem = false
+        shouldPreservePausedState = false
         stopObservingAVPlayerItem()
         
         let assetToCancel = asset
@@ -527,12 +553,13 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
             let state = self.state
             if self.asset == nil && state != .stopped {
                 self.state = .idle
-            } else if (state != .failed && state != .stopped) {
-                // Playback may have become paused externally for example due to a bluetooth device disconnecting:
-                if (self.playWhenReady) {
-                    // Only if we are not on the boundaries of the track, otherwise itemDidPlayToEndTime will handle it instead.
-                    if (self.currentTime > 0 && self.currentTime < self.duration) {
-                        self.playWhenReady = false;
+            } else if (state != .failed && state != .stopped && state != .ended) {
+                if self.playWhenReady {
+                    switch state {
+                    case .playing, .buffering:
+                        finishPlaybackIfNeeded()
+                    default:
+                        break
                     }
                 } else {
                     self.state = .paused
@@ -543,6 +570,8 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
                 self.state = .buffering
             }
         case .playing:
+            hasHandledPlaybackEndForCurrentItem = false
+            shouldPreservePausedState = false
             self.state = .playing
         @unknown default:
             break
@@ -587,16 +616,33 @@ extension AVPlayerWrapper: AVPlayerItemNotificationObserverDelegate {
     }
     
     func itemDidPlayToEndTime() {
-        delegate?.AVWrapperItemDidPlayToEndTime()
+        finishPlaybackIfNeeded()
     }
     
+}
+
+extension AVPlayerWrapper: AVAudioSessionPauseObserverDelegate {
+    func audioSessionInterruptionBegan() {
+        handleSystemPause()
+    }
+
+    func audioSessionRouteDidChange(reason: AVAudioSession.RouteChangeReason) {
+        guard reason == .oldDeviceUnavailable else { return }
+        handleSystemPause()
+    }
 }
 
 extension AVPlayerWrapper: AVPlayerItemObserverDelegate {
     // MARK: - AVPlayerItemObserverDelegate
 
     func item(didUpdatePlaybackLikelyToKeepUp playbackLikelyToKeepUp: Bool) {
-        if (playbackLikelyToKeepUp && state != .playing) {
+        if playbackLikelyToKeepUp,
+           state != .playing,
+           state != .ended,
+           !hasHandledPlaybackEndForCurrentItem {
+            if state == .paused && shouldPreservePausedState {
+                return
+            }
             state = .ready
         }
     }
