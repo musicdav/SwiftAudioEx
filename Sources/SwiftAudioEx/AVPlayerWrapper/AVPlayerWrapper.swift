@@ -29,6 +29,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     internal let playerTimeObserver: AVPlayerTimeObserver
     private let playerItemNotificationObserver = AVPlayerItemNotificationObserver()
     private let playerItemObserver = AVPlayerItemObserver()
+    private let audioSessionPauseObserver = AVAudioSessionPauseObserver()
     fileprivate var timeToSeekToAfterLoading: TimeInterval?
     fileprivate var asset: AVAsset? = nil
     fileprivate var item: AVPlayerItem? = nil
@@ -39,6 +40,9 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     private var currentBitrateKbps: Int? = nil
     private var currentDurationSeconds: Double? = nil
     private var activeCachingItem: CachingPlayerItem? = nil
+    private var hasHandledPlaybackEndForCurrentItem = false
+    private var hasPendingSystemPause = false
+    private var shouldPreservePausedState = false
     var assignedPreloadedItem: CachingPlayerItem?
     private let loadSequenceQueue = DispatchQueue(label: "AVPlayerWrapper.loadSequenceQueue")
     private var loadSequence: UInt = 0
@@ -56,6 +60,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         playerTimeObserver.delegate = self
         playerItemNotificationObserver.delegate = self
         playerItemObserver.delegate = self
+        audioSessionPauseObserver.delegate = self
 
         setupAVPlayer();
     }
@@ -179,10 +184,14 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     func play() {
+        hasPendingSystemPause = false
+        shouldPreservePausedState = false
         playWhenReady = true
     }
     
     func pause() {
+        hasPendingSystemPause = false
+        shouldPreservePausedState = false
         playWhenReady = false
     }
     
@@ -198,6 +207,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     func stop() {
+        hasPendingSystemPause = false
+        shouldPreservePausedState = false
         state = .stopped
         clearCurrentItem()
         playWhenReady = false
@@ -233,9 +244,26 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     private func playbackFailed(error: AudioPlayerError.PlaybackError) {
+        hasHandledPlaybackEndForCurrentItem = true
+        hasPendingSystemPause = false
+        shouldPreservePausedState = false
         state = .failed
         self.playbackError = error
         self.delegate?.AVWrapper(failedWithError: error)
+    }
+
+    private func finishPlaybackIfNeeded() {
+        guard !hasHandledPlaybackEndForCurrentItem else { return }
+        hasHandledPlaybackEndForCurrentItem = true
+        hasPendingSystemPause = false
+        shouldPreservePausedState = false
+        delegate?.AVWrapperItemDidPlayToEndTime()
+    }
+
+    private func handleSystemPause() {
+        hasPendingSystemPause = true
+        shouldPreservePausedState = true
+        playWhenReady = false
     }
 
     private func nextLoadSequence() -> UInt {
@@ -282,6 +310,9 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         } else {
             clearCurrentItem()
         }
+        hasHandledPlaybackEndForCurrentItem = false
+        hasPendingSystemPause = false
+        shouldPreservePausedState = false
         guard let url = url else { return }
         let currentLoadSequence = nextLoadSequence()
 
@@ -454,6 +485,9 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     // MARK: - Util
 
     private func clearCurrentItem() {
+        hasHandledPlaybackEndForCurrentItem = false
+        hasPendingSystemPause = false
+        shouldPreservePausedState = false
         stopObservingAVPlayerItem()
         
         let assetToCancel = asset
@@ -526,15 +560,19 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
         case .paused:
             let state = self.state
             if self.asset == nil && state != .stopped {
+                hasPendingSystemPause = false
                 self.state = .idle
-            } else if (state != .failed && state != .stopped) {
-                // Playback may have become paused externally for example due to a bluetooth device disconnecting:
+            } else if (state != .failed && state != .stopped && state != .ended) {
                 if (self.playWhenReady) {
-                    // Only if we are not on the boundaries of the track, otherwise itemDidPlayToEndTime will handle it instead.
-                    if (self.currentTime > 0 && self.currentTime < self.duration) {
+                    if hasPendingSystemPause {
+                        hasPendingSystemPause = false
                         self.playWhenReady = false;
+                        self.state = .paused
+                    } else {
+                        finishPlaybackIfNeeded()
                     }
                 } else {
+                    hasPendingSystemPause = false
                     self.state = .paused
                 }
             }
@@ -543,6 +581,9 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
                 self.state = .buffering
             }
         case .playing:
+            hasHandledPlaybackEndForCurrentItem = false
+            hasPendingSystemPause = false
+            shouldPreservePausedState = false
             self.state = .playing
         @unknown default:
             break
@@ -587,16 +628,33 @@ extension AVPlayerWrapper: AVPlayerItemNotificationObserverDelegate {
     }
     
     func itemDidPlayToEndTime() {
-        delegate?.AVWrapperItemDidPlayToEndTime()
+        finishPlaybackIfNeeded()
     }
     
+}
+
+extension AVPlayerWrapper: AVAudioSessionPauseObserverDelegate {
+    func audioSessionInterruptionBegan() {
+        handleSystemPause()
+    }
+
+    func audioSessionRouteDidChange(reason: AVAudioSession.RouteChangeReason) {
+        guard reason == .oldDeviceUnavailable else { return }
+        handleSystemPause()
+    }
 }
 
 extension AVPlayerWrapper: AVPlayerItemObserverDelegate {
     // MARK: - AVPlayerItemObserverDelegate
 
     func item(didUpdatePlaybackLikelyToKeepUp playbackLikelyToKeepUp: Bool) {
-        if (playbackLikelyToKeepUp && state != .playing) {
+        if playbackLikelyToKeepUp,
+           state != .playing,
+           state != .ended,
+           !hasHandledPlaybackEndForCurrentItem {
+            if state == .paused && shouldPreservePausedState {
+                return
+            }
             state = .ready
         }
     }

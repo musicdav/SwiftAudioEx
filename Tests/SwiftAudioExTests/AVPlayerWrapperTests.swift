@@ -211,6 +211,81 @@ class AVPlayerWrapperTests: XCTestCase {
         wrapper.timeEventFrequency = .everyHalfSecond
         XCTAssertEqual(wrapper.playerTimeObserver.periodicObserverTimeInterval, TimeEventFrequency.everyHalfSecond.getTime())
     }
+
+    func testUnexpectedPauseWhilePlayingIsHandledAsPlaybackEnd() {
+        let playingExpectation = XCTestExpectation(description: "Wrapper entered playing state")
+        let endedExpectation = XCTestExpectation(description: "Wrapper forwarded playback end")
+        holder.stateUpdate = { state in
+            if state == .playing {
+                playingExpectation.fulfill()
+            }
+        }
+        holder.itemDidComplete = {
+            endedExpectation.fulfill()
+        }
+
+        wrapper.load(from: LongSource.url, playWhenReady: true)
+        wait(for: [playingExpectation], timeout: defaultTimeout)
+
+        wrapper.player(didChangeTimeControlStatus: .paused)
+
+        wait(for: [endedExpectation], timeout: defaultTimeout)
+    }
+
+    func testPlaybackEndIsOnlyForwardedOnceWhenPauseComesBeforeNotification() {
+        let playingExpectation = XCTestExpectation(description: "Wrapper entered playing state")
+        holder.stateUpdate = { state in
+            if state == .playing {
+                playingExpectation.fulfill()
+            }
+        }
+
+        wrapper.load(from: LongSource.url, playWhenReady: true)
+        wait(for: [playingExpectation], timeout: defaultTimeout)
+
+        wrapper.player(didChangeTimeControlStatus: .paused)
+        wrapper.itemDidPlayToEndTime()
+
+        waitEqual(self.holder.playbackEndCount, 1, timeout: defaultTimeout)
+    }
+
+    func testInterruptionPauseDoesNotTriggerPlaybackEnd() {
+        let playingExpectation = XCTestExpectation(description: "Wrapper entered playing state")
+        holder.stateUpdate = { state in
+            if state == .playing {
+                playingExpectation.fulfill()
+            }
+        }
+
+        wrapper.load(from: LongSource.url, playWhenReady: true)
+        wait(for: [playingExpectation], timeout: defaultTimeout)
+
+        wrapper.audioSessionInterruptionBegan()
+        wrapper.player(didChangeTimeControlStatus: .paused)
+
+        waitEqual(self.wrapper.playWhenReady, false, timeout: defaultTimeout)
+        waitEqual(self.wrapper.state, .paused, timeout: defaultTimeout)
+        XCTAssertEqual(holder.playbackEndCount, 0)
+    }
+
+    func testOldDeviceUnavailablePauseDoesNotTriggerPlaybackEnd() {
+        let playingExpectation = XCTestExpectation(description: "Wrapper entered playing state")
+        holder.stateUpdate = { state in
+            if state == .playing {
+                playingExpectation.fulfill()
+            }
+        }
+
+        wrapper.load(from: LongSource.url, playWhenReady: true)
+        wait(for: [playingExpectation], timeout: defaultTimeout)
+
+        wrapper.audioSessionRouteDidChange(reason: .oldDeviceUnavailable)
+        wrapper.player(didChangeTimeControlStatus: .paused)
+
+        waitEqual(self.wrapper.playWhenReady, false, timeout: defaultTimeout)
+        waitEqual(self.wrapper.state, .paused, timeout: defaultTimeout)
+        XCTAssertEqual(holder.playbackEndCount, 0)
+    }
 }
 
 class AVPlayerWrapperDelegateHolder: AVPlayerWrapperDelegate {
@@ -244,6 +319,8 @@ class AVPlayerWrapperDelegateHolder: AVPlayerWrapperDelegate {
     }
 
     func AVWrapperItemDidPlayToEndTime() {
+        playbackEndCount += 1
+        itemDidComplete?()
     }
 
     private var _state: AVPlayerWrapperState? = nil
@@ -272,6 +349,7 @@ class AVPlayerWrapperDelegateHolder: AVPlayerWrapperDelegate {
     var didUpdateDuration: ((_ duration: Double) -> Void)?
     var didSeekTo: ((_ seconds: Double) -> Void)?
     var itemDidComplete: (() -> Void)?
+    var playbackEndCount: Int = 0
 
     func AVWrapper(didChangeState state: AVPlayerWrapperState) {
         self.state = state
