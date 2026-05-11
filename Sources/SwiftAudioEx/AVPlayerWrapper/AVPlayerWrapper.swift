@@ -263,7 +263,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         let cacheURL = AudioCacheManager.shared.fileURL(for: url, trackId: currentTrackIdentifier, fileExtension: resolvedExtension)
         // Convert Int bitrateKbps to Double for CachingPlayerItem
         let bitrateDouble: Double? = bitrateKbps.map { Double($0) }
-        let cachingItem = CachingPlayerItem(
+        let cachingItem = CachingPlayerItem.withCacheCheck(
             url: url,
             saveFilePath: cacheURL.path,
             customFileExtension: resolvedExtension,

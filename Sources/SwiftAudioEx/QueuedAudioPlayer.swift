@@ -323,7 +323,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
         // Convert Int bitrateKbps to Double for CachingPlayerItem
         let bitrateDouble: Double? = bitrateKbps.map { Double($0) }
-        let cachingItem = CachingPlayerItem(
+        let cachingItem = CachingPlayerItem.withCacheCheck(
             url: url,
             saveFilePath: AudioCacheManager.shared.fileURL(for: url, trackId: trackId, fileExtension: resolvedExtension).path,
             customFileExtension: resolvedExtension,
@@ -338,6 +338,8 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
         preloadingItem = cachingItem
         preloadingTrackId = trackId
-        cachingItem.download()
+        if cachingItem.isCaching {
+            cachingItem.download()
+        }
     }
 }
