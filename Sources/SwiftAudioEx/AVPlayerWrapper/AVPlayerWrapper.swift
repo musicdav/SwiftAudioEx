@@ -528,7 +528,15 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
             if self.asset == nil && state != .stopped {
                 self.state = .idle
             } else if (state != .failed && state != .stopped) {
-                self.state = .paused
+                // Playback may have become paused externally for example due to a bluetooth device disconnecting:
+                if (self.playWhenReady) {
+                    // Only if we are not on the boundaries of the track, otherwise itemDidPlayToEndTime will handle it instead.
+                    if (self.currentTime > 0 && self.currentTime < self.duration) {
+                        self.playWhenReady = false;
+                    }
+                } else {
+                    self.state = .paused
+                }
             }
         case .waitingToPlayAtSpecifiedRate:
             if self.asset != nil {
