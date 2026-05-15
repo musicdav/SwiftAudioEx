@@ -354,9 +354,15 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
      - Duration
      - Playback rate
      */
-    func updateNowPlayingPlaybackValues(currentState: AVPlayerWrapperState? = nil) {
-        let state = currentState ?? wrapper.state
-        let effectiveRate: Double = state == .playing ? Double(wrapper.rate) : 0
+    func updateNowPlayingPlaybackValues() {
+        let effectiveRate: Double = {
+            switch wrapper.state {
+            case .playing:
+                return Double(wrapper.rate)
+            default:
+                return 0
+            }
+        }()
         nowPlayingInfoController.set(keyValues: [
             MediaItemProperty.duration(wrapper.duration),
             NowPlayingInfoProperty.playbackRate(effectiveRate),
@@ -414,7 +420,7 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
         switch state {
         case .ready, .loading, .playing, .paused:
             if (automaticallyUpdateNowPlayingInfo) {
-                updateNowPlayingPlaybackValues(currentState: state)
+                updateNowPlayingPlaybackValues()
             }
         default: break
         }
