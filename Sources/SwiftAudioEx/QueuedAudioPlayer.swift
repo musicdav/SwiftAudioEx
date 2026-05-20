@@ -236,6 +236,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
                 (wrapper as? AVPlayerWrapper)?.assignedPreloadedItem = item
                 preloadingItem = nil
                 preloadingTrackId = nil
+                preloadedIdentifier = nil
             }
             super.load(item: currentItem)
         } else {
@@ -302,6 +303,14 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         guard let url = URL(string: urlString) else { return }
 
         let trackId = trackKey(for: nextItem)
+
+        // Avoid preloading the same logical track that is already the current item.
+        // This covers adjacent duplicate tracks and single-item queue repeat.
+        if let current = currentItem, trackKey(for: current) == trackId {
+            resetPreloading()
+            return
+        }
+
         let identifier = trackId
         if preloadedIdentifier == identifier { return }
 
