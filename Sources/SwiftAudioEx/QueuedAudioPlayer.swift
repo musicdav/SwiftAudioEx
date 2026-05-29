@@ -16,6 +16,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     let queue: QueueManager = QueueManager<AudioItem>()
     fileprivate var lastIndex: Int = -1
     fileprivate var lastItem: AudioItem? = nil
+    private var pendingTrackReplayToken: Int = 0
 
     public override init(nowPlayingInfoController: NowPlayingInfoControllerProtocol = NowPlayingInfoController(), remoteCommandController: RemoteCommandController = RemoteCommandController()) {
         super.init(nowPlayingInfoController: nowPlayingInfoController, remoteCommandController: remoteCommandController)
@@ -48,9 +49,20 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     }
 
     override public func clear() {
+        pendingTrackReplayToken += 1
         queue.clearQueue()
         resetPreloading()
         super.clear()
+    }
+
+    public override func pause() {
+        pendingTrackReplayToken += 1
+        super.pause()
+    }
+
+    public override func stop() {
+        pendingTrackReplayToken += 1
+        super.stop()
     }
 
     /**
@@ -202,10 +214,21 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     override func AVWrapperItemDidPlayToEndTime() {
         event.playbackEnd.emit(data: .playedUntilEnd)
         if (repeatMode == .track) {
-            self.pause()
+            pendingTrackReplayToken += 1
+            let replayToken = pendingTrackReplayToken
+            let replayTrackId = currentItem.map(trackKey(for:))
+
+            super.pause()
 
             // quick workaround for race condition - schedule a call after 2 frames
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016 * 2) { [weak self] in self?.replay() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016 * 2) { [weak self] in
+                guard let self = self,
+                      self.pendingTrackReplayToken == replayToken,
+                      self.repeatMode == .track,
+                      self.currentItem.map(self.trackKey(for:)) == replayTrackId else { return }
+
+                self.replay()
+            }
         } else if (repeatMode == .queue) {
             let shouldContinuePlaying = playWhenReady
             _ = queue.next(wrap: true)
